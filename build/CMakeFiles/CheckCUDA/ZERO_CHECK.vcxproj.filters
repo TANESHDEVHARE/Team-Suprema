@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="18.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\SIH 2026\trial-2\sovereign_cpp\build\CMakeFiles\CheckCUDA\CMakeFiles\eb8c055d68b32eac783c654c01bbd7ff\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{E13EE33C-D6D0-3F52-B1AE-76E9FB6FC837}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

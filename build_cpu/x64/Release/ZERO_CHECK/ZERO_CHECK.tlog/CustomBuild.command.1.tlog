@@ -1,0 +1,10 @@
+^D:\SIH 2026\TRIAL-2\SOVEREIGN_CPP\BUILD_CPU\CMAKEFILES\B803091DC51519B1F5B0B9B0977B0CF0\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SD:/SIH 2026/trial-2/sovereign_cpp" "-BD:/SIH 2026/trial-2/sovereign_cpp/build_cpu" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "D:/SIH 2026/trial-2/sovereign_cpp/build_cpu/sovereign_cpp.slnx"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

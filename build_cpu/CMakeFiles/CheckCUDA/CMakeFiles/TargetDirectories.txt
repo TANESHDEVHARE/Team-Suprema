@@ -1,0 +1,2 @@
+D:/SIH 2026/trial-2/sovereign_cpp/build_cpu/CMakeFiles/CheckCUDA/CMakeFiles/ALL_BUILD.dir
+D:/SIH 2026/trial-2/sovereign_cpp/build_cpu/CMakeFiles/CheckCUDA/CMakeFiles/ZERO_CHECK.dir

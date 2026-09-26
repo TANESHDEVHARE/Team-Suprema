@@ -1,0 +1,10 @@
+^D:\SIH 2026\TRIAL-2\SOVEREIGN_CPP\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SD:/SIH 2026/trial-2/sovereign_cpp" "-BD:/SIH 2026/trial-2/sovereign_cpp/build" --check-stamp-file "D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/generate.stamp"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
