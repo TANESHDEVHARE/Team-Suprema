@@ -21,7 +21,9 @@ struct PresolveResult {
     std::string status;            // "ok" | "infeasible" | "unbounded"
 };
 
-PresolveResult presolve(const RangedLP& ranged, int max_iterations = 500);
+// mip_mode: also apply integer-only reductions (coefficient tightening), which
+// keep every integer point but change the LP relaxation -- MILP pipeline only.
+PresolveResult presolve(const RangedLP& ranged, int max_iterations = 500, bool mip_mode = false);
 
 // x,y,z sized n0,m0,n0 on return.
 void postsolve(int n0, int m0, const std::vector<int>& row_ids, const std::vector<int>& col_ids,

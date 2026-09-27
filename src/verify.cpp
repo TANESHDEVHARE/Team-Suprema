@@ -18,6 +18,11 @@ static double vec_norm2(const std::vector<double>& a, const std::vector<double>&
 KKTReport verify(const RangedLP& ranged, const std::vector<double>& x, const std::vector<double>& y) {
     CSR Acsr = to_csr(ranged.A);
     CSR ATcsr = to_csc_as_transposed_csr(ranged.A);
+    return verify(ranged, Acsr, ATcsr, x, y);
+}
+
+KKTReport verify(const RangedLP& ranged, const CSR& Acsr, const CSR& ATcsr,
+                 const std::vector<double>& x, const std::vector<double>& y) {
     const auto& c = ranged.c; const auto& rL = ranged.rL; const auto& rU = ranged.rU;
     const auto& l = ranged.l; const auto& u = ranged.u;
     int m = ranged.m(), n = ranged.n();

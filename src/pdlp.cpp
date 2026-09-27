@@ -1,5 +1,6 @@
 #include "pdlp.hpp"
 #include "verify.hpp"
+#include "pdlp_algo.hpp"
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -88,122 +89,64 @@ void extract_solution(const PdlpFormMeta& meta, const std::vector<double>& x2, c
         y[meta.row_perm[pos]] = meta.row_signs[pos] * y2[pos];
 }
 
-static void unscale(const std::vector<double>& Dr, const std::vector<double>& Dc,
-                     const std::vector<double>& xs, const std::vector<double>& ys,
-                     std::vector<double>& x, std::vector<double>& y) {
-    x.resize(xs.size()); for (size_t j = 0; j < xs.size(); ++j) x[j] = Dc[j] * xs[j];
-    y.resize(ys.size()); for (size_t i = 0; i < ys.size(); ++i) y[i] = Dr[i] * ys[i];
-}
+// ------------------------------------------------------------ CPU backend --
+// The PDLP algorithm itself lives in include/pdlp_algo.hpp and is shared with
+// the CUDA backend (gpu/pdlp_gpu_solve.cu); this is just the arithmetic layer.
+namespace {
+
+struct CpuBackend {
+    using Vec = std::vector<double>;
+    int n, m;
+    CSR A, AT;
+    const std::vector<double> &c, &l, &u, &b;
+    std::vector<char> is_ineq;
+
+    explicit CpuBackend(const RangedLP& s)
+        : n(s.n()), m(s.m()), A(to_csr(s.A)), AT(to_csc_as_transposed_csr(s.A)),
+          c(s.c), l(s.l), u(s.u), b(s.rL), is_ineq(s.m()) {
+        for (int i = 0; i < m; ++i) is_ineq[i] = s.rL[i] != s.rU[i];
+    }
+    Vec vec_n() const { return Vec(n, 0.0); }
+    Vec vec_m() const { return Vec(m, 0.0); }
+
+    static void spmv(const CSR& M, const Vec& v, Vec& out) {
+        for (int i = 0; i < M.rows; ++i) {
+            double s = 0.0;
+            for (int p = M.indptr[i]; p < M.indptr[i + 1]; ++p) s += M.data[p] * v[M.indices[p]];
+            out[i] = s;
+        }
+    }
+    void Ax(const Vec& x, Vec& out) const { spmv(A, x, out); }
+    void ATy(const Vec& y, Vec& out) const { spmv(AT, y, out); }
+
+    void primal_step(const Vec& x, const Vec& aty, double tau, Vec& xn) const {
+        for (int j = 0; j < n; ++j) xn[j] = std::min(std::max(x[j] - tau * (c[j] - aty[j]), l[j]), u[j]);
+    }
+    void dual_step(const Vec& y, const Vec& axn, const Vec& ax, double sigma, Vec& yn) const {
+        for (int i = 0; i < m; ++i) {
+            double v = y[i] + sigma * (b[i] - (2.0 * axn[i] - ax[i]));
+            yn[i] = (is_ineq[i] && v < 0.0) ? 0.0 : v;
+        }
+    }
+    void step_stats(const Vec& x, const Vec& xn, const Vec& y, const Vec& yn, const Vec& ax, const Vec& axn,
+                    double& dx2, double& dy2, double& inter) const {
+        dx2 = dy2 = inter = 0.0;
+        for (int j = 0; j < n; ++j) { double d = xn[j] - x[j]; dx2 += d * d; }
+        for (int i = 0; i < m; ++i) { double d = yn[i] - y[i]; dy2 += d * d; inter += d * (axn[i] - ax[i]); }
+    }
+    void axpy(double a, const Vec& x, Vec& y) const { for (size_t k = 0; k < x.size(); ++k) y[k] += a * x[k]; }
+    void zero(Vec& v) const { std::fill(v.begin(), v.end(), 0.0); }
+    void swap(Vec& a, Vec& b2) const { a.swap(b2); }
+    void to_host(const Vec& v, std::vector<double>& h) const { h = v; }
+    void from_host(const std::vector<double>& h, Vec& v) const { v = h; }
+};
+
+} // namespace
 
 PdlpResult solve_pdhg(const RangedLP& unscaled_form, const RangedLP& scaled_form,
                        const std::vector<double>& Dr, const std::vector<double>& Dc,
-                       double eta, int max_iterations, int check_every, double tol,
+                       double /*eta: step size is adaptive now*/, int max_iterations, int check_every, double tol,
                        std::atomic<bool>* stop_flag) {
-    int m2 = scaled_form.m(), n2 = scaled_form.n();
-    CSR A = to_csr(scaled_form.A);
-    CSR AT = to_csc_as_transposed_csr(scaled_form.A);
-    const auto& c = scaled_form.c; const auto& rL = scaled_form.rL; const auto& rU = scaled_form.rU;
-    const auto& l = scaled_form.l; const auto& u = scaled_form.u;
-    std::vector<char> is_ineq(m2);
-    for (int i = 0; i < m2; ++i) is_ineq[i] = (rL[i] != rU[i]);
-    const auto& b = rL;
-
-    double tau = eta, sigma = eta;
-
-    std::vector<double> x(n2, 0.0), y(m2, 0.0);
-    for (int j = 0; j < n2; ++j) x[j] = std::min(std::max(0.0, l[j]), u[j]);
-    std::vector<double> x_sum(n2, 0.0), y_sum(m2, 0.0);
-    int n_since_restart = 0;
-    double last_restart_score = std::numeric_limits<double>::infinity();
-    int restarts = 0;
-
-    for (int k = 1; k <= max_iterations; ++k) {
-        if (stop_flag && stop_flag->load(std::memory_order_relaxed)) {
-            // Another engine already produced a verified answer -- stop
-            // racing and hand back whatever this engine has right now
-            // (unconverged; the race harness discards it and keeps the
-            // winner's result, so this value is never actually used, but
-            // returning a well-formed result keeps the function's contract
-            // simple regardless of who called it).
-            std::vector<double> xu, yu; unscale(Dr, Dc, x, y, xu, yu);
-            KKTReport rep = verify(unscaled_form, xu, yu);
-            PdlpResult res; res.x = xu; res.y = yu; res.iterations = k; res.converged = false;
-            res.eps_P = rep.eps_P; res.eps_D = rep.eps_D; res.eps_G = rep.eps_G; res.restarts = restarts;
-            return res;
-        }
-        auto ATy = matvec_T(AT, y);
-        std::vector<double> x_new(n2);
-        for (int j = 0; j < n2; ++j) x_new[j] = std::min(std::max(x[j] - tau * (c[j] - ATy[j]), l[j]), u[j]);
-
-        std::vector<double> two_xnew_minus_x(n2);
-        for (int j = 0; j < n2; ++j) two_xnew_minus_x[j] = 2 * x_new[j] - x[j];
-        auto Adx = matvec(A, two_xnew_minus_x);
-        std::vector<double> y_new(m2);
-        for (int i = 0; i < m2; ++i) {
-            double yv = y[i] + sigma * (b[i] - Adx[i]);
-            if (is_ineq[i]) yv = std::max(yv, 0.0);
-            y_new[i] = yv;
-        }
-        x = x_new; y = y_new;
-        for (int j = 0; j < n2; ++j) x_sum[j] += x[j];
-        for (int i = 0; i < m2; ++i) y_sum[i] += y[i];
-        n_since_restart++;
-
-        if (k % check_every == 0) {
-            std::vector<double> x_avg(n2), y_avg(m2);
-            for (int j = 0; j < n2; ++j) x_avg[j] = x_sum[j] / n_since_restart;
-            for (int i = 0; i < m2; ++i) y_avg[i] = y_sum[i] / n_since_restart;
-
-            std::vector<double> xu_cur, yu_cur, xu_avg, yu_avg;
-            unscale(Dr, Dc, x, y, xu_cur, yu_cur);
-            unscale(Dr, Dc, x_avg, y_avg, xu_avg, yu_avg);
-            KKTReport rep_cur = verify(unscaled_form, xu_cur, yu_cur);
-            KKTReport rep_avg = verify(unscaled_form, xu_avg, yu_avg);
-            double score_cur = rep_cur.eps_P + rep_cur.eps_D + rep_cur.eps_G;
-            double score_avg = rep_avg.eps_P + rep_avg.eps_D + rep_avg.eps_G;
-
-            bool use_avg = score_avg <= score_cur;
-            const auto& cand_x = use_avg ? x_avg : x;
-            const auto& cand_y = use_avg ? y_avg : y;
-            double cand_score = use_avg ? score_avg : score_cur;
-            const KKTReport& cand_rep = use_avg ? rep_avg : rep_cur;
-
-            if (std::max({cand_rep.eps_P, cand_rep.eps_D, cand_rep.eps_G}) <= tol) {
-                std::vector<double> xu, yu; unscale(Dr, Dc, cand_x, cand_y, xu, yu);
-                PdlpResult res; res.x = xu; res.y = yu; res.iterations = k; res.converged = true;
-                res.eps_P = cand_rep.eps_P; res.eps_D = cand_rep.eps_D; res.eps_G = cand_rep.eps_G; res.restarts = restarts;
-                return res;
-            }
-
-            bool sufficient_decay = cand_score <= 0.2 * last_restart_score;
-            bool artificial = n_since_restart >= std::max(64, (int)(0.36 * k));
-            if (sufficient_decay || artificial) {
-                x = cand_x; y = cand_y;
-                std::fill(x_sum.begin(), x_sum.end(), 0.0);
-                std::fill(y_sum.begin(), y_sum.end(), 0.0);
-                n_since_restart = 0;
-                last_restart_score = cand_score;
-                restarts++;
-            }
-        }
-    }
-
-    std::vector<double> x_avg(n2), y_avg(m2);
-    int denom = std::max(1, n_since_restart);
-    for (int j = 0; j < n2; ++j) x_avg[j] = x_sum[j] / denom;
-    for (int i = 0; i < m2; ++i) y_avg[i] = y_sum[i] / denom;
-    std::vector<double> xu_cur, yu_cur, xu_avg, yu_avg;
-    unscale(Dr, Dc, x, y, xu_cur, yu_cur);
-    unscale(Dr, Dc, x_avg, y_avg, xu_avg, yu_avg);
-    KKTReport rep_cur = verify(unscaled_form, xu_cur, yu_cur);
-    KKTReport rep_avg = verify(unscaled_form, xu_avg, yu_avg);
-
-    PdlpResult res;
-    if ((rep_avg.eps_P + rep_avg.eps_D + rep_avg.eps_G) <= (rep_cur.eps_P + rep_cur.eps_D + rep_cur.eps_G)) {
-        res.x = xu_avg; res.y = yu_avg; res.eps_P = rep_avg.eps_P; res.eps_D = rep_avg.eps_D; res.eps_G = rep_avg.eps_G;
-    } else {
-        res.x = xu_cur; res.y = yu_cur; res.eps_P = rep_cur.eps_P; res.eps_D = rep_cur.eps_D; res.eps_G = rep_cur.eps_G;
-    }
-    res.iterations = max_iterations; res.converged = false; res.restarts = restarts;
-    return res;
+    CpuBackend B(scaled_form);
+    return pdlp_run(B, unscaled_form, scaled_form, Dr, Dc, max_iterations, check_every, tol, stop_flag);
 }

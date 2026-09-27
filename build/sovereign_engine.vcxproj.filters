@@ -16,6 +16,21 @@
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\pdlp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\basis_lu.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\simplex.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\mip.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\sparse_ldl.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\qp_ipm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\solve.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

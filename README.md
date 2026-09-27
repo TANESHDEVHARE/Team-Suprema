@@ -1,119 +1,132 @@
-# Sovereign LP Solver — C++ POC
+# Sovereign Optimization Solver (SIH 2026 · PS 26119 · MRPL)
 
-A direct C++17 port of the working `sovereign_pdlp` Python engine: MPS reader
-→ Presolve (R1-R4) → Scaling (Ruiz + Pock-Chambolle) → restarted PDHG/PDLP →
-Postsolve → an **independent KKT verifier** (shares no code with the solver).
-No external dependencies for the CPU path — builds with nothing but a C++17
-compiler and CMake. The GPU path additionally needs the CUDA toolkit, and
-CMake detects it automatically (see below).
+A from-scratch mathematical optimization engine for **LP, MILP and convex QP**,
+written in C++17 (plus CUDA for the GPU path). No third-party solver or
+linear-algebra library is used anywhere in the solve path: the sparse LU, the
+sparse LDLᵀ, the orderings, the simplex, the interior-point method, the PDLP
+engine and every branch-and-cut component are implemented here from the
+published mathematics. The design follows the pipeline documents in `Math/`
+(with the corrections recorded in `Math/PIPELINE_NOTES.md`).
 
-## Honest status (read this before presenting)
+Every answer is checked by an **independent verifier** (`src/verify.cpp`)
+against the original, unscaled, unpresolved problem, and the reported status
+follows that verifier — not the engine's own view.
 
-- **CPU pipeline: working, tested, today.** Builds and runs now; matches the
-  Python POC's results to 8+ significant figures on real Netlib instances.
-- **CPU/GPU race: real code, wired into the build, not yet executed on a GPU
-  anywhere.** `gpu/pdlp_gpu_solve.cu` is a complete host+device implementation
-  — not a stub — that mirrors `src/pdlp.cpp`'s `solve_pdhg()` iteration for
-  iteration, restart rule for restart rule, and calls the exact same
-  independent `verify()` the CPU engine calls, at the same cadence. When
-  CMake finds a CUDA compiler (`check_language(CUDA)`), it is compiled in and
-  `solve_mps()` races it against the CPU engine on two `std::thread`s sharing
-  one `std::atomic<bool>` stop flag — first verified answer wins, exactly as
-  described in the architecture diagram. When CMake finds no CUDA compiler
-  (true of every machine this project has been built on so far — this
-  sandbox and the Windows/MSYS2 toolchain), the GPU file is silently left out
-  of the build and `solve_mps()` falls back to the single CPU path, unchanged.
-  **No run of this project, anywhere, has yet produced a real GPU timing
-  number.** Don't claim one until `build/sovereign_solve ... ` has actually
-  printed `Engine: gpu` on real hardware.
-- `gpu/pdlp_spmv_kernel.cu` (a separate file) is kept as the original,
-  documented kernel design referenced in the deck — `pdlp_gpu_solve.cu` is
-  the file CMake actually compiles.
-- **MILP/QP: not built.** Out of scope for this POC, per the project's own
-  scope decision (LP only through the 3-month milestone).
+## What is in the box
 
-## Build & run — CPU only (no GPU needed, works everywhere)
+| Problem | Engine | Where |
+|---|---|---|
+| LP | **Dual revised simplex** — Markowitz LU (Suhl–Suhl dual storage) with Forrest–Tomlin updates, dual steepest edge, bound-flipping + Harris ratio test, dual phase 1 by artificial bounding, cost perturbation, Bland fallback, primal simplex cleanup | `src/basis_lu.cpp`, `src/simplex.cpp` |
+| LP | **Restarted PDLP** (adaptive steps, primal weight, KKT restarts) — one algorithm (`include/pdlp_algo.hpp`), two backends: CPU and hand-written CUDA kernels (no cuBLAS/cuSPARSE), deterministic reductions | `src/pdlp.cpp`, `gpu/pdlp_gpu_solve.cu` |
+| LP | **Crossover** PDLP point → simplex basis (pivoting crash), then simplex to machine precision | `DualSimplex::crossover_start` |
+| LP | **Auto race**: dual simplex vs PDLP(GPU)+crossover — first verified answer wins | `solve_mps_simplex(..., race=true)` |
+| LP, QP | **Primal-dual interior point** — Mehrotra predictor-corrector + Gondzio centrality correctors, quasidefinite augmented system, sparse LDLᵀ with minimum-degree ordering, dynamic regularization (inertia control), iterative refinement, dependent-row removal | `src/qp_ipm.cpp`, `src/sparse_ldl.cpp` |
+| MILP | **Branch-and-cut** — warm-started dual simplex at every node; Gomory mixed-integer, c-MIR with variable-upper-bound substitution (flow-cover strength), knapsack cover cuts; reliability branching (strong branching → pseudocosts); best-bound + plunging; reduced-cost fixing; rounding, feasibility pump, RENS, RINS, diving; **multi-threaded tree search** | `src/mip.cpp` |
+| all | MPS/QPS reader (free + fixed format, RANGES, all BOUNDS types, integer markers, QUADOBJ/QMATRIX), presolve + postsolve, Ruiz/Pock–Chambolle scaling (integer columns never scaled, Q scaled symmetrically) | `src/mps_reader.cpp`, `src/presolve.cpp`, `src/scaling.cpp` |
+
+## Build
 
 ```
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j4
-./run_checks                                   # correctness suite
-./sovereign_solve sample_problems/afiro.mps    # solve one problem
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release          # finds nvcc if present
+cmake --build build --config Release -j 8
 ```
 
-CMake will print one of these two lines during configure — that line tells
-you, honestly, whether this build includes the GPU race:
+CMake prints whether the CUDA engine is included (`CUDA compiler found` /
+`no CUDA compiler found`). `-DSOVEREIGN_FORCE_CPU=ON` forces a CPU-only build
+(for honest CPU-vs-GPU timing on the same machine). `CMAKE_CUDA_ARCHITECTURES`
+is set to 86 (RTX 30xx); change it for other GPUs.
+
+## Run
 
 ```
--- sovereign_cpp: no CUDA compiler found -- building CPU-only ...
--- sovereign_cpp: CUDA compiler found (...) -- building the real CPU/GPU race engine
+sovereign_solve            model.mps [time_limit]   # engine picked by type: MILP -> branch-and-cut,
+                                                    #   QP -> interior point, LP -> dual simplex
+sovereign_solve --simplex  model.mps [time_limit]   # LP: dual simplex
+sovereign_solve --auto     model.mps [time_limit]   # LP: simplex vs PDLP(GPU)+crossover race
+sovereign_solve --crossover model.mps               # LP: PDLP -> crossover -> simplex
+sovereign_solve --ipm      model.mps|model.qps       # LP or convex QP: interior point
+sovereign_solve --mip [--threads=8] [--gap=1e-4] model.mps [time_limit]   # MILP
+sovereign_solve --pdlp     model.mps [tol] [iters]  # LP: PDLP only (CPU/GPU race)
+sovereign_solve --stats    model.mps                # what the reader parsed
+options: --no-presolve, --no-cuts, --no-heuristics, --nodes=N, -v / -vv / -vvv
 ```
 
-## Getting an actual GPU run (do this before quoting a GPU number)
+Output always includes the verifier's residuals: `eps_P` (primal), `eps_D`
+(dual), `eps_G` (duality gap) — relative, on the original problem — and for
+MILP the integrality violation, the proven bound and the gap. Statuses:
+`optimal`, `near_optimal` (verified residuals ≤ 1e-6 but above 1e-8 /
+engine stopped on a stall), `infeasible`, `unbounded`,
+`unbounded_or_infeasible`, `time_limit`, `node_limit`, `iteration_limit`.
 
-You need an NVIDIA GPU and the CUDA toolkit. Two ways to get one before a
-deadline:
-
-1. **Check your own laptop first** — Windows PowerShell:
-   ```
-   nvidia-smi
-   ```
-   If that prints a GPU table, you have an NVIDIA GPU. Then install the CUDA
-   Toolkit from developer.nvidia.com/cuda-downloads, open a fresh MSYS2
-   MinGW64 terminal (or a regular terminal with `nvcc` on PATH), and re-run
-   the build steps above from a clean `build/` directory — CMake will detect
-   `nvcc` and compile the race in automatically. No code changes needed.
-
-2. **No local GPU — use a free cloud GPU (Google Colab).** Upload this whole
-   `sovereign_cpp/` folder, set Runtime → Change runtime type → GPU, then in
-   a Colab cell:
-   ```
-   !apt-get install -y cmake
-   !cd sovereign_cpp && rm -rf build && mkdir build && cd build && \
-     cmake .. -DCMAKE_BUILD_TYPE=Release && make -j4 && \
-     ./run_checks && ./sovereign_solve ../sample_problems/afiro.mps 1e-8 200000
-   ```
-   Colab ships `nvcc` on its GPU runtimes already, so this should just work.
-   The CLI output's `Engine:` line tells you, honestly, which engine actually
-   won that particular race — it may say `cpu` even on a GPU-enabled build if
-   the CPU engine happens to converge first on a problem this small (AFIRO is
-   tiny; the GPU engine's real advantage, per the published PDLP literature,
-   only shows up at much larger problem sizes — see the earlier discussion of
-   O(nnz) scaling in this chat before assuming `gpu` should always win here).
-
-## Verified result (AFIRO, real Netlib instance, 27 rows x 32 cols) — CPU
+## Tests and benchmarks
 
 ```
-Status:     optimal
-Objective:  -464.7531429
-Engine:     cpu
-Iterations: 4672  (restarts: 14)
-eps_P:      9.0e-12   eps_D: 4.9e-11   eps_G: 3.5e-10
-Time:       0.0021 s
+build/Release/run_checks     # LP (PDLP, simplex, IPM), QP and MILP on sample_problems/
+build/Release/test_lu        # LU factorization + Forrest-Tomlin updates
+build/Release/test_ldl       # sparse LDL^T on random quasidefinite systems
+
+pip install highspy          # optional: the comparison solver
+python tools/benchmark.py --exe build/Release/sovereign_solve.exe --set all --highs --time 60
 ```
 
-Cross-checked against the Python POC's independent run: `-464.7531428522593`
-— agrees to 8 significant figures. `run_checks` also passes on BLEND, SC50A,
-a RANGES-section instance, and an RHS-omitted-vector-name instance (the same
-MPS-format edge cases the Python test suite covers).
+`tools/benchmark.py` downloads Netlib (LP), MIPLIB 3 (MILP) and the
+Maros–Mészáros set (QP) into `bench_data/`, runs this solver and — with
+`--highs` — HiGHS on the same instances, and writes `bench_results/report.md`.
+A result counts as **OK** only if it is verified *and* agrees with the
+reference; **WRONG** (a verified-looking answer that disagrees) must stay 0.
 
-## Structure
+### Results (RTX 3050 laptop, 12 threads; reference HiGHS 1.15.1; 2026-09-27)
+
+| Set | Engine | Result | Notes |
+|---|---|---|---|
+| Netlib LP, 91 problems | dual simplex | **91/91 optimal**, objective within 1e-6 of HiGHS (worst 2.9e-9); verifier eps ≤ 4.4e-8 | 46 s total vs HiGHS 19 s; median 1.3x HiGHS's pivot count; Bland's fallback never fired |
+| Netlib LP | PDLP → crossover → simplex | **91/91 optimal** | |
+| Netlib LP | interior point | 85/91 optimal, 2 near-optimal | bnl2, finnis, greenbea, dfl001 stall (simplex solves them) |
+| Maros–Mészáros convex QP, 134 problems | interior point | **119/134 certified optimal** (110 match the published optimum, 9 without a reference certified to gap ≤ 1e-11), 4 near-optimal | 97 s total; LISWET family + YAO stall |
+| MIPLIB 3, 63 problems, 60 s limit, 4 threads | branch-and-cut | **47/63 proven optimal, 0 wrong**, 16 at the time limit, 15 of them with a verified feasible incumbent | HiGHS (1 thread) proves 48/63. Faster than HiGHS on 24 instances, incl. misc07 5.8 s vs 32.4 s, stein45 7.2 s vs 33.4 s; mas76, pk1, qiu proven where HiGHS hits the limit. HiGHS proves air05, harp2, modglob, set1ch that we do not |
+| Refinery planning (tools/gen_refinery.py) | branch-and-cut / IPM | 12×12 and 30×24 MILP and the QP variant match HiGHS exactly | 30×24 (744 binaries): 1.7 s vs HiGHS 0.95 s |
+
+GPU (PDLP, hand-written CUDA kernels, RTX 3050), 1,000,000-variable
+transportation LP (2M nonzeros), both engines to 1e-4:
+**CPU PDLP 48.4 s, GPU PDLP 8.1 s (6.0x)** with the same iteration count
+(2185 vs 2179) and matching objectives. On the same LP the dual simplex reaches
+a verified vertex in 17.5 s; PDLP(GPU)+crossover+simplex takes 49 s because
+the post-crossover simplex pivots on dense rows. The GPU engine therefore is a
+measured win over CPU first-order solving, while the dual simplex remains the
+fastest route to a certified vertex on every LP tried — which is why plain LP
+defaults to the simplex and `--auto` races both.
+
+## Honest limitations (read before presenting)
+
+- **Speed is behind HiGHS**, correctness is not. The simplex takes a median
+  1.3x HiGHS's pivots but each pivot costs more (dense-vector FTRAN/BTRAN; no
+  hypersparse solves yet). MILP node throughput and root strength trail a
+  mature solver on harder MIPLIB instances (see the table: time-limit rows).
+- **MILP presolve is basic** (integer bound rounding, coefficient tightening, singleton rows,
+  fixed/empty columns). Probing, clique detection, GCD tightening and
+  symmetry handling from the MILP document are not implemented yet; neither
+  are lifted cover / clique cuts, local cuts in the tree, or GPU cut scoring.
+- **Interior point** stalls on the LISWET family and YAO (degenerate QPs with
+  long chains of second-difference constraints) and on four Netlib LPs
+  (bnl2, finnis, greenbea, dfl001); those LPs are solved by the simplex.
+- **GPU**: only PDLP runs on the GPU. It beats the CPU PDLP (2x at 160k
+  variables, 6x at 1M), but a certified vertex is still reached fastest by the
+  dual simplex on every LP tried: the post-crossover simplex pivots on dense
+  rows (no hypersparse / partial pricing yet). The QP document's GPU ADMM warm
+  start is not implemented.
+- **Crossover** is a pivoting crash, not the full Megiddo primal/dual push;
+  it helps most when PDLP converges well (large, well-scaled LPs).
+- Synthetic refinery model (`tools/gen_refinery.py`) is representative in
+  structure, not calibrated to MRPL data.
+
+## Layout
 
 ```
-include/    sparse.hpp, lp_problem.hpp, ranged_lp.hpp, presolve.hpp,
-            scaling.hpp, verify.hpp, pdlp.hpp, pdlp_gpu.hpp, solve.hpp
-src/        matching .cpp for each header, + main.cpp (CLI)
-gpu/        pdlp_spmv_kernel.cu   -- original documented kernel design (reference only)
-            pdlp_gpu_solve.cu     -- the real host+device engine CMake compiles
-                                     when a CUDA compiler is found
-tests/      run_checks.cpp -- correctness suite against real Netlib data
-sample_problems/   Netlib MPS files copied from the Python POC
+include/, src/   engine (one header per module), main.cpp = CLI
+gpu/             pdlp_gpu_solve.cu (CUDA backend of the PDLP engine);
+                 pdlp_spmv_kernel.cu (original kernel design, reference only)
+tests/           run_checks.cpp, test_lu.cpp, test_ldl.cpp
+tools/           benchmark.py, gen_lp.cpp (large synthetic LPs), audit_lp.cpp (CPU vs GPU PDLP audit)
+sample_problems/ small Netlib / MIPLIB 3 / Maros-Meszaros instances used by run_checks
+Math/            the pipeline documents and PIPELINE_NOTES.md (agreed corrections)
 ```
-
-Every CPU module is a direct, line-by-line port of the equivalent Python file
-in `sovereign_pdlp/engine/` — same algorithm, same formulas, same variable
-names where possible — so the Python version can keep serving as the answer
-key for any future change here. The GPU engine is a device-parallel port of
-the same `solve_pdhg()` loop, not a different algorithm — see
-`gpu/pdlp_gpu_solve.cu`'s header comment for exactly how the two correspond.

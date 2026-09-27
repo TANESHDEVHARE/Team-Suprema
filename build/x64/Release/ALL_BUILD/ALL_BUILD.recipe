@@ -5,6 +5,9 @@
       <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\x64\Release\ZERO_CHECK</FullPath>
     </ProjectOutput>
     <ProjectOutput>
+      <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\Release\audit_lp.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
       <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\Release\gen_lp.exe</FullPath>
     </ProjectOutput>
     <ProjectOutput>
@@ -12,6 +15,12 @@
     </ProjectOutput>
     <ProjectOutput>
       <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\Release\sovereign_solve.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\Release\test_ldl.exe</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\Release\test_lu.exe</FullPath>
     </ProjectOutput>
     <ProjectOutput>
       <FullPath>D:\SIH 2026\trial-2\sovereign_cpp\build\x64\Release\ALL_BUILD</FullPath>

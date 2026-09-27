@@ -9,6 +9,7 @@
 	</Configurations>
 	<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="95315de5-7df5-3500-92bd-9adafcbd9d06" DefaultStartup="true">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="audit_lp.vcxproj"/>
 		<BuildDependency Project="gen_lp.vcxproj"/>
 		<BuildDependency Project="run_checks.vcxproj"/>
 		<BuildDependency Project="sovereign_engine.vcxproj"/>
@@ -26,6 +27,10 @@
 		<Build Solution="RelWithDebInfo|*" Project="false"/>
 	</Project>
 	<Project Path="ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="b4233b19-de71-34db-925c-be38b291052e"/>
+	<Project Path="audit_lp.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="d661cb6c-9a92-3cd1-a1a5-a8caa60e055c">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="sovereign_engine.vcxproj"/>
+	</Project>
 	<Project Path="gen_lp.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="5b081de3-0742-398e-a35b-a3128992fb75">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>

@@ -144,6 +144,7 @@ C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\include\vector_function
 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\include\vector_types.h
 D:\SIH 2026\trial-2\sovereign_cpp\include\lp_problem.hpp
 D:\SIH 2026\trial-2\sovereign_cpp\include\pdlp.hpp
+D:\SIH 2026\trial-2\sovereign_cpp\include\pdlp_algo.hpp
 D:\SIH 2026\trial-2\sovereign_cpp\include\pdlp_gpu.hpp
 D:\SIH 2026\trial-2\sovereign_cpp\include\ranged_lp.hpp
 D:\SIH 2026\trial-2\sovereign_cpp\include\sparse.hpp

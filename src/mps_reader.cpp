@@ -1,6 +1,6 @@
 // mps_reader.cpp -- direct port of the Python POC's mps_reader.py.
-// Free-format MPS parser: NAME, OBJSENSE, ROWS, COLUMNS (INTORG/INTEND
-// noted, integrality not enforced -- LP only), RHS, RANGES, BOUNDS, ENDATA.
+// MPS parser (free format, fixed-format fallback): NAME, OBJSENSE, ROWS, COLUMNS (INTORG/INTEND
+// recorded in LPProblem::integer), RHS (objective-row RHS = -constant), RANGES, BOUNDS, ENDATA.
 #include "mps_reader.hpp"
 #include <fstream>
 #include <sstream>
@@ -10,9 +10,11 @@
 #include <stdexcept>
 #include <cmath>
 #include <limits>
+#include <cstdlib>
+#include <algorithm>
 
 static const std::set<std::string> SECTION_KEYWORDS = {
-    "NAME","OBJSENSE","ROWS","COLUMNS","RHS","RANGES","BOUNDS","ENDATA"
+    "NAME","OBJSENSE","ROWS","COLUMNS","RHS","RANGES","BOUNDS","ENDATA","QUADOBJ","QMATRIX","QSECTION"
 };
 
 static std::vector<std::string> split_ws(const std::string& s) {
@@ -23,9 +25,49 @@ static std::vector<std::string> split_ws(const std::string& s) {
     return out;
 }
 
+// Fixed-format MPS: fields at columns 2-3, 5-12, 15-22, 25-36, 40-47, 50-61
+// (1-based). Names may contain spaces, so fields are cut by position.
+static std::vector<std::string> fixed_fields(const std::string& line) {
+    static const int start[6] = {1, 4, 14, 24, 39, 49};
+    static const int len[6]   = {2, 8, 8, 12, 8, 12};
+    std::vector<std::string> f(6);
+    for (int k = 0; k < 6; ++k) {
+        if ((int)line.size() <= start[k]) break;
+        std::string s = line.substr(start[k], len[k]);
+        size_t a = s.find_first_not_of(" \t"), b = s.find_last_not_of(" \t");
+        f[k] = a == std::string::npos ? "" : s.substr(a, b - a + 1);
+    }
+    return f;
+}
+
+static bool is_number(const std::string& s) {
+    if (s.empty()) return false;
+    char* end = nullptr;
+    std::strtod(s.c_str(), &end);
+    return end && *end == '\0';
+}
+
+static LPProblem parse_mps(const std::string& path, bool fixed_format);
+
+// Free format first (the common case, and the only one that allows long
+// names); if that fails to parse, the file is re-read as fixed format.
 LPProblem read_mps(const std::string& path) {
+    try {
+        return parse_mps(path, false);
+    } catch (const std::exception& free_err) {
+        try {
+            return parse_mps(path, true);
+        } catch (const std::exception&) {
+            throw std::runtime_error(std::string("MPS parse failed: ") + free_err.what());
+        }
+    }
+}
+
+static LPProblem parse_mps(const std::string& path, bool fixed_format) {
     std::ifstream f(path);
     if (!f) throw std::runtime_error("cannot open MPS file: " + path);
+    double obj_constant = 0.0;
+    std::unordered_set<std::string> integer_cols;
 
     std::string name = "";
     std::string sense = "min";
@@ -49,6 +91,8 @@ LPProblem read_mps(const std::string& path) {
     std::unordered_map<std::string,double> ranges;
 
     std::unordered_map<std::string,double> bound_lo, bound_hi;
+    struct QEntry { std::string a, b; double v; bool full; };
+    std::vector<QEntry> quad;
     std::unordered_set<std::string> bound_explicit_lo;
 
     std::string raw_line;
@@ -76,6 +120,21 @@ LPProblem read_mps(const std::string& path) {
         }
 
         std::vector<std::string> tokens = tokens_all;
+        if (fixed_format && section != "OBJSENSE") {
+            auto fl = fixed_fields(raw_line);
+            tokens.clear();
+            if (section == "ROWS") tokens = {fl[0], fl[1]};
+            else if (section == "BOUNDS") {
+                tokens = {fl[0], fl[1].empty() ? std::string("BND") : fl[1], fl[2]};
+                if (!fl[3].empty()) tokens.push_back(fl[3]);
+            } else {
+                // COLUMNS: name, row, value[, row, value]; RHS/RANGES: set, row, value[, ...]
+                std::string lead = fl[1];
+                if (lead.empty() && section != "COLUMNS") lead = "RHS";
+                tokens = {lead, fl[2], fl[3]};
+                if (!fl[4].empty()) { tokens.push_back(fl[4]); tokens.push_back(fl[5]); }
+            }
+        }
 
         if (section == "OBJSENSE") {
             std::string s = tokens[0];
@@ -85,6 +144,9 @@ LPProblem read_mps(const std::string& path) {
         }
 
         if (section == "ROWS") {
+            // A free-format row line has exactly two tokens; more means names
+            // contain spaces, i.e. this is really a fixed-format file.
+            if (!fixed_format && tokens.size() != 2) throw std::runtime_error("ROWS line is not free format: " + raw_line);
             char rtype = toupper(tokens[0][0]);
             std::string rname = tokens[1];
             row_type[rname] = rtype;
@@ -98,17 +160,21 @@ LPProblem read_mps(const std::string& path) {
         }
 
         if (section == "COLUMNS") {
+            // Markers are usually quoted: MARK0000 'MARKER' 'INTORG'. Check the
+            // raw free-format tokens, since fixed-format fields cut them apart.
+            auto unq = [](std::string t) { t.erase(std::remove(t.begin(), t.end(), '\''), t.end()); return t; };
             bool is_marker = false;
-            for (auto& t : tokens) if (t == "MARKER") is_marker = true;
+            for (auto& t : tokens_all) if (unq(t) == "MARKER") is_marker = true;
             if (is_marker) {
-                for (auto& t : tokens) {
-                    if (t == "INTORG") int_marker_active = true;
-                    if (t == "INTEND") int_marker_active = false;
+                for (auto& t : tokens_all) {
+                    if (unq(t) == "INTORG") int_marker_active = true;
+                    if (unq(t) == "INTEND") int_marker_active = false;
                 }
                 continue;
             }
             std::string cname = tokens[0];
             if (!col_index.count(cname)) { col_index[cname] = (int)col_order.size(); col_order.push_back(cname); }
+            if (int_marker_active) integer_cols.insert(cname);
             for (size_t i = 1; i + 1 < tokens.size(); i += 2) {
                 const std::string& rname = tokens[i];
                 double val = std::stod(tokens[i+1]);
@@ -121,8 +187,11 @@ LPProblem read_mps(const std::string& path) {
 
         if (section == "RHS") {
             size_t start = (tokens.size() % 2 == 1) ? 1 : 0;
-            for (size_t i = start; i + 1 < tokens.size(); i += 2)
-                rhs[tokens[i]] = std::stod(tokens[i+1]);
+            for (size_t i = start; i + 1 < tokens.size(); i += 2) {
+                // An RHS on the objective row is minus the objective constant.
+                if (tokens[i] == obj_row_name) obj_constant = -std::stod(tokens[i+1]);
+                else rhs[tokens[i]] = std::stod(tokens[i+1]);
+            }
             continue;
         }
 
@@ -133,21 +202,40 @@ LPProblem read_mps(const std::string& path) {
             continue;
         }
 
+        if (section == "QUADOBJ" || section == "QMATRIX" || section == "QSECTION") {
+            // QUADOBJ/QSECTION: lower triangle, each off-diagonal once.
+            // QMATRIX: the full symmetric matrix; keep i >= j only.
+            if (tokens.size() < 3) continue;
+            quad.push_back({tokens[0], tokens[1], std::stod(tokens[2]), section == "QMATRIX"});
+            continue;
+        }
+
         if (section == "BOUNDS") {
             std::string btype = tokens[0];
             for (auto& ch : btype) ch = toupper(ch);
-            std::string cname = tokens[2];
+            // The bound-set name is optional: "UP BND X 4" and "UP X 4" are both legal.
+            bool needs_val = btype == "UP" || btype == "LO" || btype == "FX" || btype == "LI" || btype == "UI";
+            bool has_set;
+            if (needs_val) has_set = tokens.size() >= 4;
+            else if (btype == "BV") has_set = tokens.size() >= 4 ||
+                     (tokens.size() == 3 && !(col_index.count(tokens[1]) && is_number(tokens[2])));
+            else has_set = tokens.size() >= 3;
+            size_t ci = has_set ? 2 : 1;
+            if (tokens.size() <= ci) throw std::runtime_error("malformed BOUNDS line: " + raw_line);
+            std::string cname = tokens[ci];
             if (!col_index.count(cname)) { col_index[cname] = (int)col_order.size(); col_order.push_back(cname); }
-            bool has_val = tokens.size() > 3;
-            double val = has_val ? std::stod(tokens[3]) : 0.0;
+            bool has_val = tokens.size() > ci + 1;
+            double val = has_val ? std::stod(tokens[ci + 1]) : 0.0;
 
             if (btype == "UP") { bound_hi[cname] = val; }
+            else if (btype == "LI") { bound_lo[cname] = val; bound_explicit_lo.insert(cname); integer_cols.insert(cname); }
+            else if (btype == "UI") { bound_hi[cname] = val; integer_cols.insert(cname); }
             else if (btype == "LO") { bound_lo[cname] = val; bound_explicit_lo.insert(cname); }
             else if (btype == "FX") { bound_lo[cname] = val; bound_hi[cname] = val; bound_explicit_lo.insert(cname); }
             else if (btype == "FR") { bound_lo[cname] = -INF; bound_hi[cname] = INF; bound_explicit_lo.insert(cname); }
             else if (btype == "MI") { bound_lo[cname] = -INF; bound_explicit_lo.insert(cname); }
             else if (btype == "PL") { bound_hi[cname] = INF; }
-            else if (btype == "BV") { bound_lo[cname] = 0.0; bound_hi[cname] = 1.0; bound_explicit_lo.insert(cname); }
+            else if (btype == "BV") { bound_lo[cname] = 0.0; bound_hi[cname] = 1.0; bound_explicit_lo.insert(cname); integer_cols.insert(cname); }
             else throw std::runtime_error("Unsupported BOUNDS type '" + btype + "' in MPS file");
             continue;
         }
@@ -162,6 +250,9 @@ LPProblem read_mps(const std::string& path) {
 
     SparseMatrix A; A.rows = m; A.cols = n;
     for (auto& e : entries) {
+        // Explicit zeros carry no information and break structural rules
+        // (a "singleton" row with a zero coefficient -- seen in RENTACAR).
+        if (e.val == 0.0) continue;
         auto it = row_idx.find(e.row);
         if (it == row_idx.end()) continue; // stray row, ignore (matches Python's safety check)
         A.row_idx.push_back(it->second);
@@ -201,5 +292,17 @@ LPProblem read_mps(const std::string& path) {
     p.obj = obj;
     p.A = A;
     p.lo = lo; p.hi = hi;
+    p.obj_constant = obj_constant;
+    p.Q.rows = p.Q.cols = n;
+    for (const auto& q : quad) {
+        auto ia = col_index.find(q.a), ib = col_index.find(q.b);
+        if (ia == col_index.end() || ib == col_index.end()) throw std::runtime_error("QUADOBJ refers to unknown column");
+        int i = ia->second, j = ib->second;
+        if (q.full && i < j) continue;
+        if (i < j) std::swap(i, j);
+        p.Q.row_idx.push_back(i); p.Q.col_idx.push_back(j); p.Q.val.push_back(q.v);
+    }
+    p.integer.assign(n, 0);
+    for (const auto& cname : integer_cols) p.integer[col_index[cname]] = 1;
     return p;
 }

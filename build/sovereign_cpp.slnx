@@ -9,10 +9,13 @@
 	</Configurations>
 	<Project Path="ALL_BUILD.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="e1c81ebe-f849-39b6-b1b4-e631ec5c33df" DefaultStartup="true">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="audit_lp.vcxproj"/>
 		<BuildDependency Project="gen_lp.vcxproj"/>
 		<BuildDependency Project="run_checks.vcxproj"/>
 		<BuildDependency Project="sovereign_engine.vcxproj"/>
 		<BuildDependency Project="sovereign_solve.vcxproj"/>
+		<BuildDependency Project="test_ldl.vcxproj"/>
+		<BuildDependency Project="test_lu.vcxproj"/>
 		<Build Solution="Debug|*" Project="false"/>
 		<Build Solution="Release|*" Project="false"/>
 		<Build Solution="MinSizeRel|*" Project="false"/>
@@ -26,6 +29,10 @@
 		<Build Solution="RelWithDebInfo|*" Project="false"/>
 	</Project>
 	<Project Path="ZERO_CHECK.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="76879136-321c-301a-b806-f651bfb5791a"/>
+	<Project Path="audit_lp.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="3e30d16c-c45a-3742-a44d-20f375d98523">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="sovereign_engine.vcxproj"/>
+	</Project>
 	<Project Path="gen_lp.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="0351d609-2654-3c77-9579-78f5b6558b1f">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>
@@ -37,6 +44,14 @@
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 	</Project>
 	<Project Path="sovereign_solve.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="c16a2e2d-fb1a-3f59-85e4-0f60d9b4972e">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="sovereign_engine.vcxproj"/>
+	</Project>
+	<Project Path="test_ldl.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="728b085f-01b0-3b4e-a0d6-65a530b05635">
+		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
+		<BuildDependency Project="sovereign_engine.vcxproj"/>
+	</Project>
+	<Project Path="test_lu.vcxproj" Type="8bc9ceb8-8b4a-11d0-8d11-00a0c91bc942" Id="04b2c337-2af8-33fb-875b-18aa232610d5">
 		<BuildDependency Project="ZERO_CHECK.vcxproj"/>
 		<BuildDependency Project="sovereign_engine.vcxproj"/>
 	</Project>

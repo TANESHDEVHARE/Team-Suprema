@@ -1,0 +1,552 @@
+{
+	"configurations" : 
+	[
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "Threads::Threads::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Threads__Threads-Debug-97949c37a33e142ba7f6.json",
+					"name" : "Threads::Threads",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-b5805d5c08fd3d92def4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.18"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "sovereign_cpp",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-Debug-f680216fb6456ba23d6d.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-Debug-109f6a5fd7c1d719c47f.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "audit_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-audit_lp-Debug-6db05f79490b21f33444.json",
+					"name" : "audit_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gen_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gen_lp-Debug-0fdd90dfcda70dcbaf1c.json",
+					"name" : "gen_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "run_checks::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-run_checks-Debug-8dbccdf58498471fc334.json",
+					"name" : "run_checks",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_engine::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_engine-Debug-c06b7a930c73d6fe3146.json",
+					"name" : "sovereign_engine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_solve::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_solve-Debug-765e28c5090bdbd45f44.json",
+					"name" : "sovereign_solve",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ldl::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ldl-Debug-4c29c989f7aaae09380a.json",
+					"name" : "test_ldl",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_lu::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_lu-Debug-b7f2908a595798c7ff52.json",
+					"name" : "test_lu",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "Threads::Threads::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Threads__Threads-Release-97949c37a33e142ba7f6.json",
+					"name" : "Threads::Threads",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-Release-b5805d5c08fd3d92def4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.18"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"name" : "Release",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "sovereign_cpp",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-Release-f680216fb6456ba23d6d.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-Release-109f6a5fd7c1d719c47f.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "audit_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-audit_lp-Release-45c3559e372afbc8d835.json",
+					"name" : "audit_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gen_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gen_lp-Release-8aacbd5bb1c71648bdd1.json",
+					"name" : "gen_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "run_checks::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-run_checks-Release-a6e8678a48475a91c464.json",
+					"name" : "run_checks",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_engine::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_engine-Release-d86c45410da4ce938bf9.json",
+					"name" : "sovereign_engine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_solve::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_solve-Release-764b7a767d5697c1df0d.json",
+					"name" : "sovereign_solve",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ldl::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ldl-Release-8dffaa15d3ea413d8e25.json",
+					"name" : "test_ldl",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_lu::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_lu-Release-2a85d6960082fa7023aa.json",
+					"name" : "test_lu",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "Threads::Threads::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Threads__Threads-MinSizeRel-97949c37a33e142ba7f6.json",
+					"name" : "Threads::Threads",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-MinSizeRel-b5805d5c08fd3d92def4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.18"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"name" : "MinSizeRel",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "sovereign_cpp",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-MinSizeRel-f680216fb6456ba23d6d.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-MinSizeRel-109f6a5fd7c1d719c47f.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "audit_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-audit_lp-MinSizeRel-2e3d84b9a3df3cc3f13f.json",
+					"name" : "audit_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gen_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gen_lp-MinSizeRel-a5c86b42731cc4783310.json",
+					"name" : "gen_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "run_checks::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-run_checks-MinSizeRel-6d82221cca794a27be69.json",
+					"name" : "run_checks",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_engine::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_engine-MinSizeRel-d65f15ad7e87c9fc85b5.json",
+					"name" : "sovereign_engine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_solve::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_solve-MinSizeRel-8329c2ce66e4818fab19.json",
+					"name" : "sovereign_solve",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ldl::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ldl-MinSizeRel-f9754838295b907ae5b5.json",
+					"name" : "test_ldl",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_lu::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_lu-MinSizeRel-9ea96c2e46bc19ea402e.json",
+					"name" : "test_lu",
+					"projectIndex" : 0
+				}
+			]
+		},
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "Threads::Threads::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-Threads__Threads-RelWithDebInfo-97949c37a33e142ba7f6.json",
+					"name" : "Threads::Threads",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"build" : ".",
+					"jsonFile" : "directory-.-RelWithDebInfo-b5805d5c08fd3d92def4.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.18"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"name" : "RelWithDebInfo",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0
+					],
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "sovereign_cpp",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ALL_BUILD-RelWithDebInfo-f680216fb6456ba23d6d.json",
+					"name" : "ALL_BUILD",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ZERO_CHECK::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ZERO_CHECK-RelWithDebInfo-109f6a5fd7c1d719c47f.json",
+					"name" : "ZERO_CHECK",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "audit_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-audit_lp-RelWithDebInfo-d69e07ec7be39ac8abd6.json",
+					"name" : "audit_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "gen_lp::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-gen_lp-RelWithDebInfo-e5ce7794bba09b824ff7.json",
+					"name" : "gen_lp",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "run_checks::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-run_checks-RelWithDebInfo-fa60c4c3a0b5d9c4b6d0.json",
+					"name" : "run_checks",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_engine::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_engine-RelWithDebInfo-57869bb8b2c2d628f6e5.json",
+					"name" : "sovereign_engine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "sovereign_solve::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-sovereign_solve-RelWithDebInfo-69dba91afc6c5c1dbbf1.json",
+					"name" : "sovereign_solve",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_ldl::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_ldl-RelWithDebInfo-9895d5697448f466fcf5.json",
+					"name" : "test_ldl",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "test_lu::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-test_lu-RelWithDebInfo-9c0275c650e0bdd2ead9.json",
+					"name" : "test_lu",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "D:/SIH 2026/trial-2/sovereign_cpp/build",
+		"source" : "D:/SIH 2026/trial-2/sovereign_cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 11
+	}
+}

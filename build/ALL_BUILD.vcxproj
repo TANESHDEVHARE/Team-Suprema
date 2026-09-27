@@ -175,6 +175,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </ProjectReference>
+    <ProjectReference Include="D:\SIH 2026\trial-2\sovereign_cpp\build\audit_lp.vcxproj">
+      <Project>{3E30D16C-C45A-3742-A44D-20F375D98523}</Project>
+      <Name>audit_lp</Name>
+    </ProjectReference>
     <ProjectReference Include="D:\SIH 2026\trial-2\sovereign_cpp\build\gen_lp.vcxproj">
       <Project>{0351D609-2654-3C77-9579-78F5B6558B1F}</Project>
       <Name>gen_lp</Name>
@@ -190,6 +194,14 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference Include="D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_solve.vcxproj">
       <Project>{C16A2E2D-FB1A-3F59-85E4-0F60D9B4972E}</Project>
       <Name>sovereign_solve</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\SIH 2026\trial-2\sovereign_cpp\build\test_ldl.vcxproj">
+      <Project>{728B085F-01B0-3B4E-A0D6-65A530B05635}</Project>
+      <Name>test_ldl</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\SIH 2026\trial-2\sovereign_cpp\build\test_lu.vcxproj">
+      <Project>{04B2C337-2AF8-33FB-875B-18AA232610D5}</Project>
+      <Name>test_lu</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

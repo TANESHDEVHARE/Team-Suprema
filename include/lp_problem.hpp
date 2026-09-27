@@ -17,6 +17,9 @@ struct LPProblem {
     std::vector<double> obj;
     SparseMatrix A;
     std::vector<double> lo, hi;
+    double obj_constant = 0.0;                  // from an RHS entry on the objective row (= -rhs)
+    std::vector<char> integer;                  // 1 if column j is integer (INTORG marker or BV bound)
+    SparseMatrix Q;                             // QP: lower triangle of Q (QUADOBJ / QMATRIX), objective 1/2 x'Qx
 
     int m() const { return static_cast<int>(row_names.size()); }
     int n() const { return static_cast<int>(col_names.size()); }

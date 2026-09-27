@@ -3,4 +3,9 @@ D:\SIH 2026\trial-2\sovereign_cpp\src\presolve.cpp;D:\SIH 2026\trial-2\sovereign
 D:\SIH 2026\trial-2\sovereign_cpp\src\scaling.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\scaling.obj
 D:\SIH 2026\trial-2\sovereign_cpp\src\verify.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\verify.obj
 D:\SIH 2026\trial-2\sovereign_cpp\src\pdlp.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\pdlp.obj
+D:\SIH 2026\trial-2\sovereign_cpp\src\basis_lu.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\basis_lu.obj
+D:\SIH 2026\trial-2\sovereign_cpp\src\simplex.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\simplex.obj
+D:\SIH 2026\trial-2\sovereign_cpp\src\mip.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\mip.obj
+D:\SIH 2026\trial-2\sovereign_cpp\src\sparse_ldl.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\sparse_ldl.obj
+D:\SIH 2026\trial-2\sovereign_cpp\src\qp_ipm.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\qp_ipm.obj
 D:\SIH 2026\trial-2\sovereign_cpp\src\solve.cpp;D:\SIH 2026\trial-2\sovereign_cpp\build\sovereign_engine.dir\Release\solve.obj

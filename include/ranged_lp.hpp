@@ -17,6 +17,8 @@ struct RangedLP {
     std::vector<double> l, u;
     double obj_offset = 0.0;
     std::string original_sense;   // "min" or "max" -- for reporting only
+    std::vector<char> integer;    // per column, 1 = integer (empty = pure LP)
+    SparseMatrix Q;               // QP: lower triangle (i >= j) of Q, objective 1/2 x'Qx + c'x; empty for LP
 
     int m() const { return static_cast<int>(row_names.size()); }
     int n() const { return static_cast<int>(col_names.size()); }
@@ -51,7 +53,10 @@ inline RangedLP to_ranged_lp(const LPProblem& p) {
     for (int j = 0; j < n; ++j) r.c[j] = flip ? -p.obj[j] : p.obj[j];
     r.A = p.A;
     r.l = p.lo; r.u = p.hi;
-    r.obj_offset = 0.0;
+    r.obj_offset = flip ? -p.obj_constant : p.obj_constant;
+    r.integer = p.integer;
+    r.Q = p.Q;
+    if (flip) for (auto& v : r.Q.val) v = -v;
     r.original_sense = p.sense;
     return r;
 }

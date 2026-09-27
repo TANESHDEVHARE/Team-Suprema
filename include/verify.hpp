@@ -11,3 +11,10 @@ struct KKTReport {
 };
 
 KKTReport verify(const RangedLP& ranged, const std::vector<double>& x, const std::vector<double>& y);
+
+// Same checks, with CSR(A) and CSR(A^T) supplied by the caller -- for engines
+// that verify repeatedly (PDLP checks every few dozen iterations) and must not
+// rebuild both matrices from COO on every call. The matrices must be built
+// from ranged.A; nothing else about the verification changes.
+KKTReport verify(const RangedLP& ranged, const CSR& A, const CSR& AT,
+                 const std::vector<double>& x, const std::vector<double>& y);

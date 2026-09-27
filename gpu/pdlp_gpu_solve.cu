@@ -1,38 +1,33 @@
 // pdlp_gpu_solve.cu
 // ==================
-// The engine that actually gets compiled into the GPU race, when CMake
-// finds a CUDA compiler (see CMakeLists.txt's check_language(CUDA) block
-// and the SOVEREIGN_WITH_CUDA guard in include/pdlp_gpu.hpp). This is a
-// SEPARATE file from gpu/pdlp_spmv_kernel.cu on purpose: that file is kept
-// exactly as it was -- the original, documented kernel design, referenced
-// by name in the deck and README -- while this file is the complete,
-// buildable host+device implementation that CMake wires into the binary.
-// The three kernels below are the same design (warp-per-row CSR SpMV,
-// kernel-fused elementwise PDHG updates) reproduced here so this
-// translation unit is self-contained and there is exactly one definition
-// of each __global__ symbol in the link.
+// CUDA backend for the restarted PDLP engine. The algorithm itself -- step
+// sizes, primal weight, averaging, restarts, termination -- is NOT in this
+// file: it is include/pdlp_algo.hpp's pdlp_run(), the same template the CPU
+// backend (src/pdlp.cpp) instantiates. This file only supplies the
+// arithmetic on the device, with hand-written kernels (no cuBLAS/cuSPARSE,
+// per the LP pipeline's Step 3 sovereignty note):
+//   * warp-per-row CSR SpMV (A x and A^T y, A^T stored as its own CSR so
+//     both products are row-parallel and coalesced)
+//   * fused PDHG primal and dual updates
+//   * fused reductions for the adaptive step size (|dx|^2, |dy|^2 and
+//     (y'-y)^T A (x'-x) in one pass)
+// A, the iterates and A x / A^T y stay resident in VRAM; the host only reads
+// three scalars per step (the step-size test) and the iterates every
+// `check_every` accepted steps, for the same independent verify() the CPU
+// engine uses.
 //
-// Honesty note (read this before quoting a number from this file): this
-// code has been written to compile with nvcc and to mirror src/pdlp.cpp's
-// solve_pdhg() exactly, iteration for iteration, restart rule for restart
-// rule -- but it has NOT been compiled or run anywhere in this project's
-// development, because no environment used so far (this sandbox, and the
-// Windows/MSYS2 toolchain used for the CPU build) has an NVIDIA GPU and
-// CUDA toolkit available. It is real, complete, structurally sound CUDA
-// C++ -- not a stub -- but "compiles" and "has been compiled" are two
-// different claims, and only the second one has actual evidence behind it
-// once you build this on real GPU hardware.
+// gpu/pdlp_spmv_kernel.cu is kept separately as the original documented
+// kernel design; this is the file CMake compiles when it finds nvcc.
 
 #include "pdlp_gpu.hpp"
 #ifdef SOVEREIGN_WITH_CUDA
 
-#include "verify.hpp"
+#include "pdlp_algo.hpp"
 #include <cuda_runtime.h>
 #include <vector>
-#include <algorithm>
-#include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #define SOVEREIGN_CUDA_CHECK(expr) do { \
     cudaError_t _e = (expr); \
@@ -44,8 +39,7 @@
 
 // ---------------------------------------------------------------- kernels
 
-// One warp computes one row of y = A * x, A in CSR -- identical design to
-// gpu/pdlp_spmv_kernel.cu's spmv_csr_warp_per_row (spec Part 8.4).
+// One warp per row of y = A x, A in CSR.
 __global__ void sov_spmv_csr_warp_per_row(
     int rows, const int* __restrict__ row_ptr, const int* __restrict__ col_idx,
     const double* __restrict__ values, const double* __restrict__ x, double* __restrict__ y)
@@ -60,238 +54,216 @@ __global__ void sov_spmv_csr_warp_per_row(
     if (lane == 0) y[warp_id] = sum;
 }
 
-// x_new = clip(x - tau*(c - ATy), l, u) -- fused into one kernel launch.
-__global__ void sov_pdhg_primal_update(
-    int n, const double* __restrict__ x, const double* __restrict__ c,
-    const double* __restrict__ ATy, const double* __restrict__ l, const double* __restrict__ u,
-    double tau, double* __restrict__ x_new)
+// One thread per row -- for matrices whose rows are short (e.g. A^T of a
+// transportation LP: 2 nonzeros per row), where a warp per row would leave
+// 30 of 32 lanes idle.
+__global__ void sov_spmv_csr_thread_per_row(
+    int rows, const int* __restrict__ row_ptr, const int* __restrict__ col_idx,
+    const double* __restrict__ values, const double* __restrict__ x, double* __restrict__ y)
+{
+    int r = blockIdx.x * blockDim.x + threadIdx.x;
+    if (r >= rows) return;
+    double sum = 0.0;
+    for (int i = row_ptr[r]; i < row_ptr[r + 1]; ++i) sum += values[i] * x[col_idx[i]];
+    y[r] = sum;
+}
+
+// xn = clip(x - tau (c - A^T y), l, u)
+__global__ void sov_primal_step(int n, const double* __restrict__ x, const double* __restrict__ c,
+                                const double* __restrict__ aty, const double* __restrict__ l,
+                                const double* __restrict__ u, double tau, double* __restrict__ xn)
 {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
     if (j >= n) return;
-    double v = x[j] - tau * (c[j] - ATy[j]);
-    x_new[j] = v < l[j] ? l[j] : (v > u[j] ? u[j] : v);
+    double v = x[j] - tau * (c[j] - aty[j]);
+    xn[j] = v < l[j] ? l[j] : (v > u[j] ? u[j] : v);
 }
 
-// y_new = clip_ineq(y + sigma*(b - Adx))
-__global__ void sov_pdhg_dual_update(
-    int m, const double* __restrict__ y, const double* __restrict__ b,
-    const double* __restrict__ Adx, const unsigned char* __restrict__ is_ineq,
-    double sigma, double* __restrict__ y_new)
+// yn = proj(y + sigma (b - (2 A xn - A x)))   (inequality rows: y >= 0)
+__global__ void sov_dual_step(int m, const double* __restrict__ y, const double* __restrict__ b,
+                              const double* __restrict__ axn, const double* __restrict__ ax,
+                              const unsigned char* __restrict__ is_ineq, double sigma, double* __restrict__ yn)
 {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= m) return;
-    double v = y[i] + sigma * (b[i] - Adx[i]);
+    double v = y[i] + sigma * (b[i] - (2.0 * axn[i] - ax[i]));
     if (is_ineq[i] && v < 0.0) v = 0.0;
-    y_new[i] = v;
+    yn[i] = v;
 }
 
-// two_xnew_minus_x = 2*x_new - x -- the PDHG extrapolation step, one launch.
-__global__ void sov_extrapolate(int n, const double* __restrict__ x_new, const double* __restrict__ x,
-                                 double* __restrict__ out)
-{
-    int j = blockIdx.x * blockDim.x + threadIdx.x;
-    if (j >= n) return;
-    out[j] = 2.0 * x_new[j] - x[j];
+__device__ double sov_block_sum(double v) {
+    __shared__ double warp_sums[32];
+    for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffff, v, o);
+    int lane = threadIdx.x % 32, w = threadIdx.x / 32;
+    if (lane == 0) warp_sums[w] = v;
+    __syncthreads();
+    v = threadIdx.x < blockDim.x / 32 ? warp_sums[lane] : 0.0;
+    if (w == 0) for (int o = 16; o > 0; o >>= 1) v += __shfl_down_sync(0xffffffff, v, o);
+    return v;   // valid in thread 0
 }
 
-// running_sum += value -- used for the ergodic (restart-averaged) iterate.
-__global__ void sov_accumulate(int n, double* __restrict__ running_sum, const double* __restrict__ value)
+// Reductions write one partial sum per block (no atomics); the host adds the
+// partials in block order, so results are bit-for-bit reproducible run to run.
+// part[b] = block b's sum of (xn - x)^2
+__global__ void sov_primal_stats(int n, const double* __restrict__ x, const double* __restrict__ xn, double* part)
+{
+    double s = 0.0;
+    for (int j = blockIdx.x * blockDim.x + threadIdx.x; j < n; j += gridDim.x * blockDim.x) {
+        double d = xn[j] - x[j]; s += d * d;
+    }
+    s = sov_block_sum(s);
+    if (threadIdx.x == 0) part[blockIdx.x] = s;
+}
+
+// part1[b] = block b's sum of (yn - y)^2,  part2[b] = of (yn - y)(axn - ax)
+__global__ void sov_dual_stats(int m, const double* __restrict__ y, const double* __restrict__ yn,
+                               const double* __restrict__ ax, const double* __restrict__ axn,
+                               double* part1, double* part2)
+{
+    double s1 = 0.0, s2 = 0.0;
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < m; i += gridDim.x * blockDim.x) {
+        double d = yn[i] - y[i]; s1 += d * d; s2 += d * (axn[i] - ax[i]);
+    }
+    s1 = sov_block_sum(s1);
+    __syncthreads();
+    s2 = sov_block_sum(s2);
+    if (threadIdx.x == 0) { part1[blockIdx.x] = s1; part2[blockIdx.x] = s2; }
+}
+
+// y += a x
+__global__ void sov_axpy(int n, double a, const double* __restrict__ x, double* __restrict__ y)
 {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
-    if (j >= n) return;
-    running_sum[j] += value[j];
+    if (j < n) y[j] += a * x[j];
 }
 
 // -------------------------------------------------------------- host side
 
 namespace {
 
-struct DeviceCSR {
-    int rows = 0;
-    int* row_ptr = nullptr;
-    int* col_idx = nullptr;
-    double* values = nullptr;
+int blocks_for(int n, int threads = 256) { return (n + threads - 1) / threads; }
+constexpr int kMaxBlocks = 256;
+int reduce_blocks(int n) { return std::min(kMaxBlocks, std::max(1, blocks_for(n))); }
 
-    void upload(const CSR& h) {
-        rows = h.rows;
-        SOVEREIGN_CUDA_CHECK(cudaMalloc(&row_ptr, h.indptr.size() * sizeof(int)));
-        SOVEREIGN_CUDA_CHECK(cudaMalloc(&col_idx, h.indices.size() * sizeof(int)));
-        SOVEREIGN_CUDA_CHECK(cudaMalloc(&values, h.data.size() * sizeof(double)));
-        SOVEREIGN_CUDA_CHECK(cudaMemcpy(row_ptr, h.indptr.data(), h.indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
-        SOVEREIGN_CUDA_CHECK(cudaMemcpy(col_idx, h.indices.data(), h.indices.size() * sizeof(int), cudaMemcpyHostToDevice));
-        SOVEREIGN_CUDA_CHECK(cudaMemcpy(values, h.data.data(), h.data.size() * sizeof(double), cudaMemcpyHostToDevice));
+// Owning device vector; move-only so pdlp_run's swaps are pointer swaps.
+struct DVec {
+    double* p = nullptr;
+    int n = 0;
+    DVec() = default;
+    explicit DVec(int len) : n(len) {
+        SOVEREIGN_CUDA_CHECK(cudaMalloc(&p, std::max(1, n) * sizeof(double)));
+        SOVEREIGN_CUDA_CHECK(cudaMemset(p, 0, std::max(1, n) * sizeof(double)));
     }
-    void free() {
-        if (row_ptr) cudaFree(row_ptr);
-        if (col_idx) cudaFree(col_idx);
-        if (values) cudaFree(values);
-        row_ptr = col_idx = nullptr; values = nullptr;
-    }
+    DVec(DVec&& o) noexcept : p(o.p), n(o.n) { o.p = nullptr; o.n = 0; }
+    DVec& operator=(DVec&& o) noexcept { std::swap(p, o.p); std::swap(n, o.n); return *this; }
+    DVec(const DVec&) = delete;
+    DVec& operator=(const DVec&) = delete;
+    ~DVec() { if (p) cudaFree(p); }
 };
 
-double* dalloc(size_t n) { double* p; SOVEREIGN_CUDA_CHECK(cudaMalloc(&p, n * sizeof(double))); return p; }
+struct DeviceCSR {
+    int rows = 0;
+    int *row_ptr = nullptr, *col_idx = nullptr;
+    double* values = nullptr;
+    bool short_rows = false;     // average row length <= 8: thread-per-row kernel
+    explicit DeviceCSR(const CSR& h) : rows(h.rows) {
+        short_rows = h.rows > 0 && h.indices.size() <= 8 * (size_t)h.rows;
+        SOVEREIGN_CUDA_CHECK(cudaMalloc(&row_ptr, h.indptr.size() * sizeof(int)));
+        SOVEREIGN_CUDA_CHECK(cudaMalloc(&col_idx, std::max<size_t>(1, h.indices.size()) * sizeof(int)));
+        SOVEREIGN_CUDA_CHECK(cudaMalloc(&values, std::max<size_t>(1, h.data.size()) * sizeof(double)));
+        SOVEREIGN_CUDA_CHECK(cudaMemcpy(row_ptr, h.indptr.data(), h.indptr.size() * sizeof(int), cudaMemcpyHostToDevice));
+        if (!h.indices.empty()) {
+            SOVEREIGN_CUDA_CHECK(cudaMemcpy(col_idx, h.indices.data(), h.indices.size() * sizeof(int), cudaMemcpyHostToDevice));
+            SOVEREIGN_CUDA_CHECK(cudaMemcpy(values, h.data.data(), h.data.size() * sizeof(double), cudaMemcpyHostToDevice));
+        }
+    }
+    ~DeviceCSR() { cudaFree(row_ptr); cudaFree(col_idx); cudaFree(values); }
+    DeviceCSR(const DeviceCSR&) = delete;
+    DeviceCSR& operator=(const DeviceCSR&) = delete;
+};
 
-void spmv_gpu(const DeviceCSR& A, const double* x, double* y) {
-    const int threads = 128, warps_per_block = threads / 32;
-    const int blocks = (A.rows + warps_per_block - 1) / warps_per_block;
-    sov_spmv_csr_warp_per_row<<<blocks, threads>>>(A.rows, A.row_ptr, A.col_idx, A.values, x, y);
-    SOVEREIGN_CUDA_CHECK(cudaGetLastError());
+DVec upload(const std::vector<double>& h) {
+    DVec d((int)h.size());
+    if (!h.empty()) SOVEREIGN_CUDA_CHECK(cudaMemcpy(d.p, h.data(), h.size() * sizeof(double), cudaMemcpyHostToDevice));
+    return d;
 }
 
-int blocks_for(int n, int threads = 256) { return (n + threads - 1) / threads; }
+struct GpuBackend {
+    using Vec = DVec;
+    int n, m;
+    DeviceCSR A, AT;
+    DVec c, l, u, b, stats;
+    unsigned char* is_ineq = nullptr;
 
-// Same math as src/pdlp.cpp's file-local unscale(), reproduced here since
-// that one has internal linkage and isn't visible outside pdlp.cpp.
-void unscale_host(const std::vector<double>& Dr, const std::vector<double>& Dc,
-                   const std::vector<double>& xs, const std::vector<double>& ys,
-                   std::vector<double>& x, std::vector<double>& y) {
-    x.resize(xs.size()); for (size_t j = 0; j < xs.size(); ++j) x[j] = Dc[j] * xs[j];
-    y.resize(ys.size()); for (size_t i = 0; i < ys.size(); ++i) y[i] = Dr[i] * ys[i];
-}
+    explicit GpuBackend(const RangedLP& s)
+        : n(s.n()), m(s.m()), A(to_csr(s.A)), AT(to_csc_as_transposed_csr(s.A)),
+          c(upload(s.c)), l(upload(s.l)), u(upload(s.u)), b(upload(s.rL)), stats(3 * kMaxBlocks) {
+        std::vector<unsigned char> ineq(m);
+        for (int i = 0; i < m; ++i) ineq[i] = s.rL[i] != s.rU[i];
+        SOVEREIGN_CUDA_CHECK(cudaMalloc(&is_ineq, std::max(1, m)));
+        if (m) SOVEREIGN_CUDA_CHECK(cudaMemcpy(is_ineq, ineq.data(), m, cudaMemcpyHostToDevice));
+    }
+    ~GpuBackend() { cudaFree(is_ineq); }
+
+    Vec vec_n() const { return DVec(n); }
+    Vec vec_m() const { return DVec(m); }
+
+    static void spmv(const DeviceCSR& M, const DVec& x, DVec& y) {
+        if (M.rows == 0) return;
+        if (M.short_rows) {
+            sov_spmv_csr_thread_per_row<<<blocks_for(M.rows), 256>>>(M.rows, M.row_ptr, M.col_idx, M.values, x.p, y.p);
+        } else {
+            const int threads = 128, warps = threads / 32;
+            sov_spmv_csr_warp_per_row<<<(M.rows + warps - 1) / warps, threads>>>(M.rows, M.row_ptr, M.col_idx, M.values, x.p, y.p);
+        }
+        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
+    }
+    void Ax(const Vec& x, Vec& out) const { spmv(A, x, out); }
+    void ATy(const Vec& y, Vec& out) const { spmv(AT, y, out); }
+
+    void primal_step(const Vec& x, const Vec& aty, double tau, Vec& xn) const {
+        if (n) sov_primal_step<<<blocks_for(n), 256>>>(n, x.p, c.p, aty.p, l.p, u.p, tau, xn.p);
+        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
+    }
+    void dual_step(const Vec& y, const Vec& axn, const Vec& ax, double sigma, Vec& yn) const {
+        if (m) sov_dual_step<<<blocks_for(m), 256>>>(m, y.p, b.p, axn.p, ax.p, is_ineq, sigma, yn.p);
+        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
+    }
+    void step_stats(const Vec& x, const Vec& xn, const Vec& y, const Vec& yn, const Vec& ax, const Vec& axn,
+                    double& dx2, double& dy2, double& inter) const {
+        const int bn = n ? reduce_blocks(n) : 0, bm = m ? reduce_blocks(m) : 0;
+        if (bn) sov_primal_stats<<<bn, 256>>>(n, x.p, xn.p, stats.p);
+        if (bm) sov_dual_stats<<<bm, 256>>>(m, y.p, yn.p, ax.p, axn.p, stats.p + kMaxBlocks, stats.p + 2 * kMaxBlocks);
+        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
+        double h[3 * kMaxBlocks];
+        SOVEREIGN_CUDA_CHECK(cudaMemcpy(h, stats.p, 3 * kMaxBlocks * sizeof(double), cudaMemcpyDeviceToHost));
+        dx2 = dy2 = inter = 0.0;
+        for (int k = 0; k < bn; ++k) dx2 += h[k];
+        for (int k = 0; k < bm; ++k) { dy2 += h[kMaxBlocks + k]; inter += h[2 * kMaxBlocks + k]; }
+    }
+    void axpy(double a, const Vec& x, Vec& y) const {
+        if (x.n) sov_axpy<<<blocks_for(x.n), 256>>>(x.n, a, x.p, y.p);
+        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
+    }
+    void zero(Vec& v) const { SOVEREIGN_CUDA_CHECK(cudaMemset(v.p, 0, std::max(1, v.n) * sizeof(double))); }
+    void swap(Vec& a, Vec& b2) const { std::swap(a.p, b2.p); std::swap(a.n, b2.n); }
+    void to_host(const Vec& v, std::vector<double>& h) const {
+        h.resize(v.n);
+        if (v.n) SOVEREIGN_CUDA_CHECK(cudaMemcpy(h.data(), v.p, v.n * sizeof(double), cudaMemcpyDeviceToHost));
+    }
+    void from_host(const std::vector<double>& h, Vec& v) const {
+        if (!h.empty()) SOVEREIGN_CUDA_CHECK(cudaMemcpy(v.p, h.data(), h.size() * sizeof(double), cudaMemcpyHostToDevice));
+    }
+};
 
 } // namespace
 
 PdlpResult solve_pdhg_gpu(const RangedLP& unscaled_form, const RangedLP& scaled_form,
                            const std::vector<double>& Dr, const std::vector<double>& Dc,
-                           double eta, int max_iterations, int check_every, double tol,
+                           double /*eta: adaptive*/, int max_iterations, int check_every, double tol,
                            std::atomic<bool>* stop_flag) {
-    const int m2 = scaled_form.m(), n2 = scaled_form.n();
-    CSR A_h = to_csr(scaled_form.A);
-    CSR AT_h = to_csc_as_transposed_csr(scaled_form.A);
-    const auto& c_h = scaled_form.c; const auto& rL_h = scaled_form.rL; const auto& rU_h = scaled_form.rU;
-    const auto& l_h = scaled_form.l; const auto& u_h = scaled_form.u;
-    std::vector<unsigned char> is_ineq_h(m2);
-    for (int i = 0; i < m2; ++i) is_ineq_h[i] = (rL_h[i] != rU_h[i]) ? 1 : 0;
-    const auto& b_h = rL_h;
-
-    // ---- device-resident data: uploaded once, kept for the whole solve ----
-    DeviceCSR A, AT; A.upload(A_h); AT.upload(AT_h);
-    double* c = dalloc(n2); SOVEREIGN_CUDA_CHECK(cudaMemcpy(c, c_h.data(), n2 * sizeof(double), cudaMemcpyHostToDevice));
-    double* l = dalloc(n2); SOVEREIGN_CUDA_CHECK(cudaMemcpy(l, l_h.data(), n2 * sizeof(double), cudaMemcpyHostToDevice));
-    double* u = dalloc(n2); SOVEREIGN_CUDA_CHECK(cudaMemcpy(u, u_h.data(), n2 * sizeof(double), cudaMemcpyHostToDevice));
-    double* b = dalloc(m2); SOVEREIGN_CUDA_CHECK(cudaMemcpy(b, b_h.data(), m2 * sizeof(double), cudaMemcpyHostToDevice));
-    unsigned char* is_ineq; SOVEREIGN_CUDA_CHECK(cudaMalloc(&is_ineq, m2));
-    SOVEREIGN_CUDA_CHECK(cudaMemcpy(is_ineq, is_ineq_h.data(), m2, cudaMemcpyHostToDevice));
-
-    double *x = dalloc(n2), *y = dalloc(m2), *x_new = dalloc(n2), *y_new = dalloc(m2);
-    double *ATy = dalloc(n2), *extrap = dalloc(n2), *Adx = dalloc(m2);
-    double *x_sum = dalloc(n2), *y_sum = dalloc(m2);
-    SOVEREIGN_CUDA_CHECK(cudaMemset(x_sum, 0, n2 * sizeof(double)));
-    SOVEREIGN_CUDA_CHECK(cudaMemset(y_sum, 0, m2 * sizeof(double)));
-
-    // x0[j] = clip(0, l[j], u[j]) -- identical init to the CPU engine.
-    std::vector<double> x0_h(n2);
-    for (int j = 0; j < n2; ++j) x0_h[j] = std::min(std::max(0.0, l_h[j]), u_h[j]);
-    SOVEREIGN_CUDA_CHECK(cudaMemcpy(x, x0_h.data(), n2 * sizeof(double), cudaMemcpyHostToDevice));
-    SOVEREIGN_CUDA_CHECK(cudaMemset(y, 0, m2 * sizeof(double)));
-
-    double tau = eta, sigma = eta;
-    int n_since_restart = 0, restarts = 0;
-    double last_restart_score = std::numeric_limits<double>::infinity();
-
-    std::vector<double> x_host(n2), y_host(m2), x_sum_host(n2), y_sum_host(m2);
-
-    auto finish = [&](bool converged, const std::vector<double>& xu, const std::vector<double>& yu,
-                       const KKTReport& rep, int iters) {
-        A.free(); AT.free();
-        cudaFree(c); cudaFree(l); cudaFree(u); cudaFree(b); cudaFree(is_ineq);
-        cudaFree(x); cudaFree(y); cudaFree(x_new); cudaFree(y_new);
-        cudaFree(ATy); cudaFree(extrap); cudaFree(Adx); cudaFree(x_sum); cudaFree(y_sum);
-        PdlpResult res; res.x = xu; res.y = yu; res.iterations = iters; res.converged = converged;
-        res.eps_P = rep.eps_P; res.eps_D = rep.eps_D; res.eps_G = rep.eps_G; res.restarts = restarts;
-        return res;
-    };
-
-    for (int k = 1; k <= max_iterations; ++k) {
-        if (stop_flag && stop_flag->load(std::memory_order_relaxed)) {
-            SOVEREIGN_CUDA_CHECK(cudaMemcpy(x_host.data(), x, n2 * sizeof(double), cudaMemcpyDeviceToHost));
-            SOVEREIGN_CUDA_CHECK(cudaMemcpy(y_host.data(), y, m2 * sizeof(double), cudaMemcpyDeviceToHost));
-            std::vector<double> xu, yu; unscale_host(Dr, Dc, x_host, y_host, xu, yu);
-            KKTReport rep = verify(unscaled_form, xu, yu);
-            return finish(false, xu, yu, rep, k);
-        }
-
-        spmv_gpu(AT, y, ATy);                                                   // ATy = AT * y
-        sov_pdhg_primal_update<<<blocks_for(n2), 256>>>(n2, x, c, ATy, l, u, tau, x_new);
-        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
-        sov_extrapolate<<<blocks_for(n2), 256>>>(n2, x_new, x, extrap);
-        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
-        spmv_gpu(A, extrap, Adx);                                               // Adx = A * (2*x_new - x)
-        sov_pdhg_dual_update<<<blocks_for(m2), 256>>>(m2, y, b, Adx, is_ineq, sigma, y_new);
-        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
-
-        std::swap(x, x_new); std::swap(y, y_new);                               // x=x_new, y=y_new (pointer swap, no copy)
-        sov_accumulate<<<blocks_for(n2), 256>>>(n2, x_sum, x);
-        sov_accumulate<<<blocks_for(m2), 256>>>(m2, y_sum, y);
-        SOVEREIGN_CUDA_CHECK(cudaGetLastError());
-        n_since_restart++;
-
-        if (k % check_every == 0) {
-            // The one sync point per check_every iterations -- same cadence
-            // the CPU engine uses, so both engines call verify() equally
-            // often, on the same schedule, for a fair race.
-            SOVEREIGN_CUDA_CHECK(cudaMemcpy(x_host.data(), x, n2 * sizeof(double), cudaMemcpyDeviceToHost));
-            SOVEREIGN_CUDA_CHECK(cudaMemcpy(y_host.data(), y, m2 * sizeof(double), cudaMemcpyDeviceToHost));
-            SOVEREIGN_CUDA_CHECK(cudaMemcpy(x_sum_host.data(), x_sum, n2 * sizeof(double), cudaMemcpyDeviceToHost));
-            SOVEREIGN_CUDA_CHECK(cudaMemcpy(y_sum_host.data(), y_sum, m2 * sizeof(double), cudaMemcpyDeviceToHost));
-
-            std::vector<double> x_avg(n2), y_avg(m2);
-            for (int j = 0; j < n2; ++j) x_avg[j] = x_sum_host[j] / n_since_restart;
-            for (int i = 0; i < m2; ++i) y_avg[i] = y_sum_host[i] / n_since_restart;
-
-            std::vector<double> xu_cur, yu_cur, xu_avg, yu_avg;
-            unscale_host(Dr, Dc, x_host, y_host, xu_cur, yu_cur);
-            unscale_host(Dr, Dc, x_avg, y_avg, xu_avg, yu_avg);
-            KKTReport rep_cur = verify(unscaled_form, xu_cur, yu_cur);
-            KKTReport rep_avg = verify(unscaled_form, xu_avg, yu_avg);
-            double score_cur = rep_cur.eps_P + rep_cur.eps_D + rep_cur.eps_G;
-            double score_avg = rep_avg.eps_P + rep_avg.eps_D + rep_avg.eps_G;
-
-            bool use_avg = score_avg <= score_cur;
-            const auto& cand_xu = use_avg ? xu_avg : xu_cur;
-            const auto& cand_yu = use_avg ? yu_avg : yu_cur;
-            const auto& cand_x = use_avg ? x_avg : x_host;
-            const auto& cand_y = use_avg ? y_avg : y_host;
-            double cand_score = use_avg ? score_avg : score_cur;
-            const KKTReport& cand_rep = use_avg ? rep_avg : rep_cur;
-
-            if (std::max({cand_rep.eps_P, cand_rep.eps_D, cand_rep.eps_G}) <= tol) {
-                return finish(true, cand_xu, cand_yu, cand_rep, k);
-            }
-
-            bool sufficient_decay = cand_score <= 0.2 * last_restart_score;
-            bool artificial = n_since_restart >= std::max(64, (int)(0.36 * k));
-            if (sufficient_decay || artificial) {
-                SOVEREIGN_CUDA_CHECK(cudaMemcpy(x, cand_x.data(), n2 * sizeof(double), cudaMemcpyHostToDevice));
-                SOVEREIGN_CUDA_CHECK(cudaMemcpy(y, cand_y.data(), m2 * sizeof(double), cudaMemcpyHostToDevice));
-                SOVEREIGN_CUDA_CHECK(cudaMemset(x_sum, 0, n2 * sizeof(double)));
-                SOVEREIGN_CUDA_CHECK(cudaMemset(y_sum, 0, m2 * sizeof(double)));
-                n_since_restart = 0;
-                last_restart_score = cand_score;
-                restarts++;
-            }
-        }
-    }
-
-    // max_iterations reached without converging -- same tail tie-break as
-    // the CPU engine: report whichever of {current, running-average} has
-    // the smaller total KKT residual.
-    SOVEREIGN_CUDA_CHECK(cudaMemcpy(x_host.data(), x, n2 * sizeof(double), cudaMemcpyDeviceToHost));
-    SOVEREIGN_CUDA_CHECK(cudaMemcpy(y_host.data(), y, m2 * sizeof(double), cudaMemcpyDeviceToHost));
-    SOVEREIGN_CUDA_CHECK(cudaMemcpy(x_sum_host.data(), x_sum, n2 * sizeof(double), cudaMemcpyDeviceToHost));
-    SOVEREIGN_CUDA_CHECK(cudaMemcpy(y_sum_host.data(), y_sum, m2 * sizeof(double), cudaMemcpyDeviceToHost));
-    int denom = std::max(1, n_since_restart);
-    std::vector<double> x_avg(n2), y_avg(m2);
-    for (int j = 0; j < n2; ++j) x_avg[j] = x_sum_host[j] / denom;
-    for (int i = 0; i < m2; ++i) y_avg[i] = y_sum_host[i] / denom;
-    std::vector<double> xu_cur, yu_cur, xu_avg, yu_avg;
-    unscale_host(Dr, Dc, x_host, y_host, xu_cur, yu_cur);
-    unscale_host(Dr, Dc, x_avg, y_avg, xu_avg, yu_avg);
-    KKTReport rep_cur = verify(unscaled_form, xu_cur, yu_cur);
-    KKTReport rep_avg = verify(unscaled_form, xu_avg, yu_avg);
-    if ((rep_avg.eps_P + rep_avg.eps_D + rep_avg.eps_G) <= (rep_cur.eps_P + rep_cur.eps_D + rep_cur.eps_G))
-        return finish(false, xu_avg, yu_avg, rep_avg, max_iterations);
-    return finish(false, xu_cur, yu_cur, rep_cur, max_iterations);
+    GpuBackend B(scaled_form);
+    return pdlp_run(B, unscaled_form, scaled_form, Dr, Dc, max_iterations, check_every, tol, stop_flag);
 }
 
 #endif // SOVEREIGN_WITH_CUDA

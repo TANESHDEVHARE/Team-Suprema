@@ -21,11 +21,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <CudaCompile Include="..\gpu\pdlp_gpu_solve.cu">
-      <Filter>Source Files</Filter>
-    </CudaCompile>
-  </ItemGroup>
-  <ItemGroup>
     <CustomBuild Include="D:\SIH 2026\trial-2\sovereign_cpp\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>

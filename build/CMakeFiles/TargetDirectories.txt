@@ -1,7 +1,10 @@
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/sovereign_engine.dir
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/sovereign_solve.dir
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/run_checks.dir
+D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/test_lu.dir
+D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/test_ldl.dir
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/gen_lp.dir
+D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/audit_lp.dir
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/RUN_TESTS.dir
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/ALL_BUILD.dir
 D:/SIH 2026/trial-2/sovereign_cpp/build/CMakeFiles/ZERO_CHECK.dir
