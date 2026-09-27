@@ -19,10 +19,13 @@ follows that verifier — not the engine's own view.
 | LP | **Dual revised simplex** — Markowitz LU (Suhl–Suhl dual storage) with Forrest–Tomlin updates, dual steepest edge, bound-flipping + Harris ratio test, dual phase 1 by artificial bounding, cost perturbation, Bland fallback, primal simplex cleanup | `src/basis_lu.cpp`, `src/simplex.cpp` |
 | LP | **Restarted PDLP** (adaptive steps, primal weight, KKT restarts) — one algorithm (`include/pdlp_algo.hpp`), two backends: CPU and hand-written CUDA kernels (no cuBLAS/cuSPARSE), deterministic reductions | `src/pdlp.cpp`, `gpu/pdlp_gpu_solve.cu` |
 | LP | **Crossover** PDLP point → simplex basis (pivoting crash), then simplex to machine precision | `DualSimplex::crossover_start` |
+| LP | **Primal simplex** — phase 1 minimizing the sum of infeasibilities (breakpoint ratio test), Devex phase 2 | `DualSimplex::solve_primal` |
+| LP | **Concurrent portfolio (default for LP)**: one presolve, then dual simplex (calling thread), primal simplex, IPM+crossover and PDLP(GPU)+crossover on their own threads; each answer is postsolved and checked by the verifier, the first certified one wins and cancels the rest. Helpers start only if the dual simplex has not finished within 50 ms (PDLP: 0.5 s, and only at ≥ 200k nonzeros), so easy LPs pay nothing | `solve_mps_concurrent` |
 | LP | **Auto race**: dual simplex vs PDLP(GPU)+crossover — first verified answer wins | `solve_mps_simplex(..., race=true)` |
 | LP, QP | **Primal-dual interior point** — Mehrotra predictor-corrector + Gondzio centrality correctors, quasidefinite augmented system, sparse LDLᵀ with minimum-degree ordering, dynamic regularization (inertia control), iterative refinement, dependent-row removal | `src/qp_ipm.cpp`, `src/sparse_ldl.cpp` |
-| MILP | **Branch-and-cut** — warm-started dual simplex at every node; Gomory mixed-integer, c-MIR with variable-upper-bound substitution (flow-cover strength), knapsack cover cuts; reliability branching (strong branching → pseudocosts); best-bound + plunging; reduced-cost fixing; rounding, feasibility pump, RENS, RINS, diving; **multi-threaded tree search** | `src/mip.cpp` |
-| all | MPS/QPS reader (free + fixed format, RANGES, all BOUNDS types, integer markers, QUADOBJ/QMATRIX), presolve + postsolve, Ruiz/Pock–Chambolle scaling (integer columns never scaled, Q scaled symmetrically) | `src/mps_reader.cpp`, `src/presolve.cpp`, `src/scaling.cpp` |
+| MILP | **Root reasoning** — bound propagation, probing on every binary (fixings, global tightenings, implications), clique table from set-packing/knapsack rows and implications | `src/mip_probe.cpp` |
+| MILP | **Branch-and-cut** — warm-started dual simplex at every node; Gomory mixed-integer, c-MIR with multi-row aggregation (up to 6 rows, Marchand–Wolsey) and variable-upper-bound substitution (flow-cover / path strength), knapsack cover, clique and implied-bound cuts; reliability branching (strong branching → pseudocosts); best-bound + plunging; reduced-cost fixing; rounding, feasibility pump, RENS, RINS, diving; **multi-threaded tree search** | `src/mip.cpp` |
+| all | MPS/QPS reader (free + fixed format, RANGES, all BOUNDS types, integer markers, QUADOBJ/QMATRIX), presolve with primal-dual postsolve (empty/singleton/redundant/forcing rows, fixed columns, dual fixing, doubleton equations, implied-free substitution / aggregator), Ruiz/Pock–Chambolle scaling (integer columns never scaled, Q scaled symmetrically) | `src/mps_reader.cpp`, `src/presolve.cpp`, `src/scaling.cpp` |
 
 ## Build
 
@@ -40,23 +43,35 @@ is set to 86 (RTX 30xx); change it for other GPUs.
 
 ```
 sovereign_solve            model.mps [time_limit]   # engine picked by type: MILP -> branch-and-cut,
-                                                    #   QP -> interior point, LP -> dual simplex
-sovereign_solve --simplex  model.mps [time_limit]   # LP: dual simplex
+                                                    #   QP -> interior point, LP -> concurrent portfolio
+sovereign_solve --concurrent model.mps [time_limit] # LP: the portfolio explicitly
+sovereign_solve --engines=dual,primal,ipm,pdlp model.mps   # LP: any subset of the portfolio
+sovereign_solve --simplex  model.mps [time_limit]   # LP: dual simplex alone
 sovereign_solve --auto     model.mps [time_limit]   # LP: simplex vs PDLP(GPU)+crossover race
 sovereign_solve --crossover model.mps               # LP: PDLP -> crossover -> simplex
 sovereign_solve --ipm      model.mps|model.qps       # LP or convex QP: interior point
 sovereign_solve --mip [--threads=8] [--gap=1e-4] model.mps [time_limit]   # MILP
 sovereign_solve --pdlp     model.mps [tol] [iters]  # LP: PDLP only (CPU/GPU race)
 sovereign_solve --stats    model.mps                # what the reader parsed
+sovereign_solve --check=solution.txt model.mps      # run the verifier on ANY solver's solution
 options: --no-presolve, --no-cuts, --no-heuristics, --nodes=N, -v / -vv / -vvv
+ablation (simplex): --no-dse, --no-harris, --no-perturb, --no-bland, --no-scaling, --textbook (all five)
 ```
 
 Output always includes the verifier's residuals: `eps_P` (primal), `eps_D`
 (dual), `eps_G` (duality gap) — relative, on the original problem — and for
-MILP the integrality violation, the proven bound and the gap. Statuses:
-`optimal`, `near_optimal` (verified residuals ≤ 1e-6 but above 1e-8 /
-engine stopped on a stall), `infeasible`, `unbounded`,
+MILP the integrality violation, the proven bound and the gap. `Solve time`
+excludes MPS parsing (as HiGHS's `run()` does); `Time` includes it. Statuses:
+`optimal` (verified residuals within the engine's tolerance, 1e-6 for simplex
+and IPM), `near_optimal` (verified residuals ≤ 1e-4, or the IPM stopped on a
+stall), `inaccurate` (the engine finished but the verifier measures residuals
+above 1e-4 — not certified), `infeasible`, `unbounded`,
 `unbounded_or_infeasible`, `time_limit`, `node_limit`, `iteration_limit`.
+
+`--check` reads a text file of `name value` lines (column values), optionally
+followed by a line `DUAL` and `name value` lines of row duals, in the model's
+own objective sense. It is how the benchmarks hold HiGHS's answers to the same
+verifier as ours.
 
 ## Tests and benchmarks
 
@@ -102,10 +117,9 @@ defaults to the simplex and `--auto` races both.
   1.3x HiGHS's pivots but each pivot costs more (dense-vector FTRAN/BTRAN; no
   hypersparse solves yet). MILP node throughput and root strength trail a
   mature solver on harder MIPLIB instances (see the table: time-limit rows).
-- **MILP presolve is basic** (integer bound rounding, coefficient tightening, singleton rows,
-  fixed/empty columns). Probing, clique detection, GCD tightening and
-  symmetry handling from the MILP document are not implemented yet; neither
-  are lifted cover / clique cuts, local cuts in the tree, or GPU cut scoring.
+- **MILP**: probing, clique table, implied-bound and aggregated c-MIR cuts are
+  in; GCD tightening, symmetry handling, lifted covers, local cuts in the tree
+  and GPU cut scoring from the MILP document are not implemented yet.
 - **Interior point** stalls on the LISWET family and YAO (degenerate QPs with
   long chains of second-difference constraints) and on four Netlib LPs
   (bnl2, finnis, greenbea, dfl001); those LPs are solved by the simplex.
