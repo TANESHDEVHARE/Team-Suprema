@@ -20,16 +20,45 @@
 ## UVP Visual
 
 ```mermaid
-flowchart LR
-    A["🆓 **FREE**\nZero license\nNo per-core fees\nMIT licensed"] 
-    B["🏁 **RACE TO TRUTH**\n4 engines compete\nFirst verified wins\nNo false optima"]
-    C["⚡ **GPU NATIVE**\nHand-written CUDA\n6× faster at scale\nNo vendor libs"]
-    D["🏛️ **SOVEREIGN CORE**\nOwn LU, LDLᵀ, AMD\nZero dependencies\nFull control"]
+flowchart TB
+    %% Central UVP
+    UVP["🎯 **SOVEREIGN OPTIMIZATION SOLVER**\nFrom-scratch • License-free • Verified • GPU-native\n\nBuilt for Indian Industrial Sovereignty"]
     
-    style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style B fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    style C fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style D fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    %% Four Pillars
+    P1["🆓 **ZERO LICENSE COST**\n━━━━━━━━━━━━━━━━━━━━\n✅ No recurring fees ever\n✅ No per-core / per-user limits\n✅ MIT license — commercial friendly\n✅ Run anywhere: cloud, on-prem, air-gapped"]
+    
+    P2["🏁 **RACE TO TRUTH**\n━━━━━━━━━━━━━━━━━━━━\n✅ 4 engines compete concurrently\n✅ First *verified* answer wins\n✅ Independent KKT verifier gates every result\n✅ No false optima, no silent failures"]
+    
+    P3["⚡ **GPU-NATIVE PERFORMANCE**\n━━━━━━━━━━━━━━━━━━━━\n✅ Hand-written CUDA kernels (PDLP)\n✅ 6× speedup at 1M variables\n✅ Zero cuBLAS/cuSPARSE dependency\n✅ Deterministic, bit-reproducible CPU↔GPU"]
+    
+    P4["🏛️ **SOVEREIGN TECH STACK**\n━━━━━━━━━━━━━━━━━━━━\n✅ Own sparse LU (simplex)\n✅ Own sparse LDLᵀ + AMD (IPM)\n✅ Own SpMV, ordering, factorization\n✅ Zero external solver/LA dependencies"]
+    
+    %% Differentiators that cut across pillars
+    D1["🔍 **FULL TRANSPARENCY**\nEvery algorithm in source\nMath traced to papers in `Math/`"]
+    D2["🔓 **NO VENDOR LOCK-IN**\nModify, extend, embed freely\nWhite-label ready for Indian OEMs"]
+    D3["🏭 **INDUSTRIAL MILP READY**\nProbing, c-MIR multi-row, VUB\nReliability branching, RINS/RENS/pump"]
+    
+    %% Connections
+    UVP --> P1
+    UVP --> P2
+    UVP --> P3
+    UVP --> P4
+    
+    P1 -.-> D1
+    P2 -.-> D1
+    P3 -.-> D2
+    P4 -.-> D2
+    P2 -.-> D3
+    P4 -.-> D3
+    
+    %% Styling
+    classDef uvp fill:#fff8e1,stroke:#f57f17,stroke-width:3px,color:#1a1a1a
+    classDef pillar fill:#ffffff,stroke:#37474f,stroke-width:2px,color:#1a1a1a
+    classDef diff fill:#eceff1,stroke:#546e7a,stroke-width:1px,stroke-dasharray: 5 5,color:#37474f
+    
+    class UVP uvp
+    class P1,P2,P3,P4 pillar
+    class D1,D2,D3 diff
 ```
 
 ---
