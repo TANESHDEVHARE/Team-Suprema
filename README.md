@@ -1,5 +1,32 @@
 # Sovereign Optimization Solver (SIH 2026 · PS 26119 · MRPL)
 
+## 📑 Table of Contents
+- [🎯 Unique Value Proposition](#-unique-value-proposition)
+- [📊 UVP Visual](#uvp-visual)
+- [🔬 Methodology](#methodology)
+- [⚙️ Implementation Process](#implementation-process)
+- [🔄 Solution Flow](#solution-flow-from-model-to-verified-answer)
+- [📦 What is in the Box](#what-is-in-the-box)
+- [📚 Mathematical Foundations](#mathematical-foundations-with-references)
+  - [Mathematical Architecture Overview](#mathematical-architecture-overview)
+  - [Software Architecture: Code Modules](#software-architecture-code-modules--interfaces)
+  - [Linear Programming](#linear-programming-mathlp_solver_pipeline_updatedpdf)
+  - [Mixed-Integer Linear Programming](#mixed-integer-linear-programming-mathmilp_solver_pipeline-1pdf)
+  - [Quadratic Programming](#quadratic-programming-mathqp_solver_pipelinepdf)
+- [🛠️ Build](#build)
+- [🚀 Run](#run)
+- [⌨️ Command-line Showcase](#command-line-showcase)
+- [🌐 Interface](#interface)
+- [🧪 Tests and Benchmarks](#tests-and-benchmarks)
+- [📈 Results](#results-rtx-3050-laptop-12-threads-reference-highs-1151-2026-09-27)
+- [⚠️ Honest Limitations](#honest-limitations-read-before-presenting)
+- [✨ Capabilities Summary](#capabilities-summary-what-this-solver-delivers)
+- [🗺️ Roadmap](#roadmap-whats-next)
+- [💼 Business Model & Market Analysis](#business-model--market-analysis)
+- [📁 Layout](#layout)
+
+---
+
 ## 🎯 Unique Value Proposition
 
 > **The only from-scratch, license-free LP/MILP/QP solver with GPU-accelerated first-order methods, concurrent multi-engine portfolio, and independent KKT verification — built entirely from mathematical foundations for Indian industrial sovereignty.**
