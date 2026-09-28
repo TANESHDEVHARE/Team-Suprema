@@ -6,6 +6,49 @@ Every answer is checked by an **independent verifier** (`src/verify.cpp`) agains
 
 ---
 
+## Solution Flow: From Model to Verified Answer
+
+```mermaid
+flowchart TD
+    A["📄 Model File\n(MPS / QPS)"] --> B["📖 Read & Parse\n(free/fixed format, Q matrix,\ninteger markers, RANGES)"]
+    B --> C["🔧 Presolve\n(remove empty/redundant rows,\nfix variables, substitute,\nround integer bounds)"]
+    C --> D["⚖️ Scale\n(Ruiz + Pock-Chambolle,\ninteger cols never scaled)"]
+    D --> E{"Problem\nType?"}
+    
+    E -->|LP| F["🏃 LP Engines\n(race / portfolio)"]
+    E -->|MILP| G["🌳 Branch-and-Cut"]
+    E -->|QP| H["📐 Interior Point"]
+    
+    F --> F1["Dual Simplex\n(Markowitz LU, steepest edge,\ncost perturbation, Bland fallback)"]
+    F --> F2["Primal Simplex\n(sum-infeas phase 1, Devex)"]
+    F --> F3["IPM + Crossover\n(Mehrotra+Gondzio, LDLᵀ)"]
+    F --> F4["PDLP + Crossover\n(restarted PDHG, adaptive steps\nCPU + GPU kernels)"]
+    F1 --> I
+    F2 --> I
+    F3 --> I
+    F4 --> I
+    
+    G --> G1["Root: Probe binaries\n(propagate, fix, imply,\nbuild clique table)"]
+    G1 --> G2["Root Cuts\n(GMI, c-MIR multi-row,\nVUB, cover, clique)"]
+    G2 --> G3["Tree Search\n(reliability branch,\nbest-bound + plunge,\nparallel, warm-start LP)"]
+    G3 --> G4["Heuristics\n(round, pump, RINS,\nRENS, dive, fix-prop)"]
+    G4 --> I
+    
+    H --> H1["Quasidefinite System\n[-(Q+Dx) Aᵀ; A Dw]\nMehrotra + Gondzio\nAMD LDLᵀ, inertia ctrl"]
+    H1 --> I
+    
+    I["🔁 Postsolve\n(unscale, undo presolve LIFO)"]
+    I --> J["✅ Independent KKT Verifier\n(original unscaled problem)"]
+    J --> K["📊 Certified Result\noptimal / near_optimal /\ninaccurate / infeasible /\nunbounded / time_limit"]
+    
+    style A fill:#e8f5e9,stroke:#2e7d32
+    style J fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style K fill:#fff3e0,stroke:#ef6c00
+    style E fill:#f3e5f5,stroke:#7b1fa2
+```
+
+---
+
 ## What is in the box
 
 | Problem | Engine | Where |
