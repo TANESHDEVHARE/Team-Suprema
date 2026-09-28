@@ -23,6 +23,7 @@
 - [✨ Capabilities Summary](#capabilities-summary-what-this-solver-delivers)
 - [🗺️ Roadmap](#roadmap-whats-next)
 - [💼 Business Model & Market Analysis](#business-model--market-analysis)
+- [📊 Feasibility & Viability](#feasibility--viability)
 - [📁 Layout](#layout)
 
 ---
@@ -845,6 +846,73 @@ flowchart LR
     style CP fill:#fce4ec,stroke:#c2185b,stroke-width:2px
     style GTM fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
 ```
+
+---
+
+## Feasibility & Viability
+
+```mermaid
+flowchart TB
+    F["✅ **FEASIBLE**\nWorking solver, proven on\nNetlib/MIPLIB/Maros-Mézáros"]
+    V["💰 **VIABLE**\nZero license cost vs\n₹Cr/yr commercial fees"]
+    S["🚀 **SCALABLE**\n1M vars on GPU,\nparallel MILP tree"]
+    
+    F --> V
+    V --> S
+    
+    style F fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style V fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style S fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+```
+
+### 1. Feasibility Analysis
+- **Technically proven**: 91/91 Netlib LP optimal, 119/134 Maros-Mézáros QP certified, 47/63 MIPLIB 3 MILP optimal
+- **Industrial relevance**: Refinery scheduling, blending, logistics, power dispatch — all mapped to LP/MILP/QP
+- **No external deps**: Pure C++17 + CUDA; builds on any standard toolchain; runs offline/air-gapped
+- **Verifiable correctness**: Independent KKT checker on original problem — no "trust me" answers
+
+### 2. Challenges & Risks
+| Risk | Severity | Evidence |
+|------|----------|----------|
+| Speed gap vs CPLEX/Gurobi on hardest MIP | Medium | 1.3× pivot count, no hypersparse solves yet |
+| Missing advanced MILP cuts (GCD, symmetry, lifted covers) | Medium | 16/63 MIPLIB 3 at time limit |
+| IPM stalls on degenerate QPs (LISWET, YAO) | Low | Simplex catches them; fallback exists |
+| Single-GPU only (no multi-GPU) | Low | PDLP scales to 1M vars on one GPU |
+| Community smaller than HiGHS/COIN-OR | Low | Growing; open core mitigates |
+
+### 3. Mitigation Strategies
+```mermaid
+flowchart LR
+    R1["Speed Gap"] --> S1["Hypersparse FTRAN/BTRAN\nNested dissection ordering\nWarm-start improvements"]
+    R2["Missing Cuts"] --> S2["GCD tightening\nSymmetry breaking\nLifted covers\nLocal tree cuts"]
+    R3["IPM Stalls"] --> S3["Simplex fallback works\nBetter regularization\nDependency detection"]
+    R4["Community"] --> S4["Open core + benchmarks\nStudent/intern pipeline\nOEM partnerships"]
+    
+    style R1 fill:#ffebee,stroke:#c62828
+    style R2 fill:#ffebee,stroke:#c62828
+    style R3 fill:#fff3e0,stroke:#ef6c00
+    style R4 fill:#fff3e0,stroke:#ef6c00
+    style S1 fill:#e8f5e9,stroke:#2e7d32
+    style S2 fill:#e8f5e9,stroke:#2e7d32
+    style S3 fill:#e8f5e9,stroke:#2e7d32
+    style S4 fill:#e8f5e9,stroke:#2e7d32
+```
+
+### 4. Cost Impact — Industry Savings
+
+| Cost Head | Commercial Solver (Typical) | **This Solver** | Annual Saving |
+|-----------|----------------------------|-----------------|---------------|
+| License fees | ₹50L–₹5Cr/yr (per seat/core) | **₹0** | **100%** |
+| Vendor lock-in risk | High (proprietary formats) | **Zero** (MPS/QPS, MIT) | Strategic |
+| Customization | Impossible / $$$ | **Source access** | Enables innovation |
+| Hardware utilization | CPU-only mostly | **GPU native (6×)** | Capex reduction |
+| Audit/compliance | Vendor dependent | **Independent verifier** | Regulatory ready |
+
+**Bottom line**: For a typical Indian refinery/power/logistics firm running 50–100 optimization scenarios/day:
+- **Direct license savings**: ₹50L–₹5Cr/year
+- **Faster solve times** (GPU) → more scenarios, better decisions → margin improvement
+- **Sovereign stack** → no supply-chain risk, full customization for Indian constraints
+- **Verified answers** → no costly "optimal but infeasible" production errors
 
 ---
 
