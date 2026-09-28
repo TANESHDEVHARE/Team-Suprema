@@ -1148,11 +1148,8 @@ void BranchAndCut::tree(Node cur, bool have_cur) {
         S.cv.notify_all();
     };
 
-    if (have_cur) {
-        std::lock_guard<std::mutex> lk(S.mu);
-        S.active++;
-        S.worker_lb[id_] = cur.lb;
-    }
+    // A node passed in (the root) was already counted active by the caller, before
+    // any worker started: an idle worker seeing active == 0 would end the search.
 
     std::string st;
     while (true) {
@@ -1346,6 +1343,11 @@ MipResult solve_mip(const RangedLP& lp, const MipOptions& opt) {
 
     Node root;
     root.lb = S.res.root_after_cuts;
+    {
+        std::lock_guard<std::mutex> lk(S.mu);
+        S.active++;
+        S.worker_lb[0] = root.lb;
+    }
     if (T == 1) {
         w0.tree(root, true);
     } else {

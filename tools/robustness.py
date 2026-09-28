@@ -141,9 +141,25 @@ def main():
     ap.add_argument("--refs", default=os.path.join(DATA, "references.json"), help="reference optima (written with --highs)")
     ap.add_argument("--only", help="comma list of model names")
     ap.add_argument("--out", default=os.path.join(sr.ROOT, "bench_results", "robustness.json"))
+    ap.add_argument("--rejudge", action="store_true", help="re-score the saved --out results against --refs without solving")
     a = ap.parse_args()
-    exe = sr.find_exe(a.exe)
     refs = json.load(open(a.refs)) if os.path.isfile(a.refs) else {}
+    prev = json.load(open(a.out)) if os.path.isfile(a.out) else None
+    if a.rejudge:
+        if not prev:
+            sys.exit("no saved results in " + a.out)
+        for rec in prev["results"]:
+            c = rec["class"]
+            ref = ["inf", None] if c == "infeasible" else refs.get(rec["name"])
+            rec["ref"] = ref
+            kind = rec["ours"].get("kind", "MILP" if c == "weak" else "LP")
+            for s in ("ours", "simple", "highs", "highs_nodrop"):
+                if s in rec:
+                    rec[s]["verdict"] = judge(rec[s], tuple(ref) if ref else None, kind, a.gap)
+        classes = [c for c in CLASSES if any(r["class"] == c for r in prev["results"])]
+        print_summary(prev["results"], classes, prev, a.out)
+        return
+    exe = sr.find_exe(a.exe)
     classes = [c.strip() for c in a.classes.split(",") if c.strip()]
     only = set(a.only.split(",")) if a.only else None
     ratios = {}
@@ -186,14 +202,13 @@ def main():
                     h2 = m17.run_highs(a.python, exe, path, ns, out_dir, small=1e-12, tag="highs_nodrop")
                     h2["status"] = m17.norm_status(h2.get("status"))
                     rec["highs_nodrop"] = h2
-                if name not in refs and not name.endswith("_s4"):     # rescaled models keep the original's optimum
+                if name not in refs and not name.endswith("_s4") and c != "infeasible":     # rescaled models keep the original's optimum
                     if h["status"] == "optimal" and h.get("obj") is not None:
                         refs[name] = ["opt", h["obj"]]
                     elif h["status"] == "infeasible":
                         refs[name] = ["inf", None]
-            ref = refs.get(name)
-            if c == "infeasible" and ref is None:
-                ref = ["inf", None]
+            # the infeasible set shares names with Netlib models (greenbea): always "must be proven infeasible"
+            ref = ["inf", None] if c == "infeasible" else refs.get(name)
             rec["ref"] = ref
             for s in ("ours", "simple", "highs", "highs_nodrop"):
                 if s in rec:
@@ -222,7 +237,14 @@ def main():
             json.dump({"settings": vars(a), "results": results}, open(a.out, "w"), indent=1)
     if a.highs:
         json.dump(refs, open(a.refs, "w"), indent=1)
-    # summary
+    if only and prev:                                 # --only re-runs a few models: merge into the saved results
+        fresh = {(r["class"], r["name"]): r for r in results}
+        results = [fresh.pop((r["class"], r["name"]), r) for r in prev["results"]] + list(fresh.values())
+        classes = [c for c in CLASSES if any(r["class"] == c for r in results)]
+    print_summary(results, classes, {"settings": vars(a)}, a.out)
+
+
+def print_summary(results, classes, doc, out):
     print("\n== Summary (correct / models)")
     summary = {}
     for c in classes:
@@ -234,7 +256,9 @@ def main():
                 line[s] = {"correct": got.count("correct"), "wrong": got.count("wrong"), "failed": got.count("failed"), "n": len(got)}
         summary[c] = line
         print("  %-38s %s" % (CLASSES[c], "   ".join("%s %d/%d (wrong %d)" % (s, v["correct"], v["n"], v["wrong"]) for s, v in line.items())))
-    json.dump({"settings": vars(a), "summary": summary, "results": results}, open(a.out, "w"), indent=1)
+    doc["summary"] = summary
+    doc["results"] = results
+    json.dump(doc, open(out, "w"), indent=1)
 
 
 if __name__ == "__main__":

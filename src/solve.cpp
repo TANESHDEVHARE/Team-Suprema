@@ -572,6 +572,18 @@ Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt
         std::string st = spx.solve(o);
         finish(3, st, spx.primal(), spx.row_duals(), pr.iterations + spx.stats().iterations);
     }));
+    // Portfolio-wide deadline: when the time limit passes, every engine is
+    // told to stop. Without it an engine with no time limit of its own (PDLP
+    // runs to an iteration cap) kept the solve alive after the others quit.
+    bool all_done = false;
+    std::thread deadline;
+    if (std::isfinite(opt.time_limit) && opt.time_limit < 1e20)
+        deadline = std::thread([&]() {
+            std::unique_lock<std::mutex> lk(wait_mu);
+            if (!wait_cv.wait_for(lk, std::chrono::duration<double>(opt.time_limit), [&]() { return stop.load() || all_done; }))
+                stop.store(true);
+            wait_cv.notify_all();                        // release helpers still waiting to start
+        });
     // The dual simplex runs on the calling thread (no spawn, warm caches):
     // on easy LPs it finishes before any helper has started.
     if (engines & 1u) {
@@ -584,6 +596,11 @@ Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt
         } catch (const std::exception& e) { finish(0, std::string("error: ") + e.what(), {}, {}, 0); }
     }
     for (auto& t : threads) t.join();
+    if (deadline.joinable()) {
+        { std::lock_guard<std::mutex> g(wait_mu); all_done = true; }
+        wait_cv.notify_all();
+        deadline.join();
+    }
 
     // Winner, or else the best verified-looking point any engine produced.
     int w = winner.load();

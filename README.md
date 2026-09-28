@@ -1,5 +1,22 @@
 # Sovereign Optimization Solver (SIH 2026 · PS 26119 · MRPL)
 
+## 🎯 Unique Value Proposition
+
+> **The only from-scratch, license-free LP/MILP/QP solver with GPU-accelerated first-order methods, concurrent multi-engine portfolio, and independent KKT verification — built entirely from mathematical foundations for Indian industrial sovereignty.**
+
+| Differentiator | What It Means |
+|----------------|---------------|
+| **Zero license cost** | No recurring fees, no per-core/user/model limits — run anywhere, any scale |
+| **Full transparency** | Every algorithm in source (`src/`/`include/`), math traced to papers in `Math/` |
+| **No vendor lock-in** | MIT-style, modify/extend/embed freely; no black boxes |
+| **GPU acceleration** | Hand-written CUDA kernels for PDLP (6× speedup at 1M vars), no cuBLAS/cuSPARSE |
+| **Concurrent portfolio** | Dual/Primal Simplex + IPM + PDLP race; first **verified** answer wins |
+| **Independent verification** | Every solution checked on original unscaled problem — status follows verifier, not engine |
+| **Sovereign stack** | Own sparse LU, LDLᵀ, AMD ordering, SpMV — zero external solver/LA dependencies |
+| **Industrial MILP** | Probing, c-MIR multi-row, VUB/flow-cover, reliability branching, parallel tree, RINS/RENS/pump |
+
+---
+
 A from-scratch mathematical optimization engine for **LP, MILP and convex QP**, written in C++17 (plus CUDA for the GPU path). No third-party solver or linear-algebra library is used anywhere in the solve path: the sparse LU, the sparse LDLᵀ, the orderings, the simplex, the interior-point method, the PDLP engine and every branch-and-cut component are implemented here from the published mathematics. The design follows the pipeline documents in `Math/` (with the corrections recorded in `Math/PIPELINE_NOTES.md`).
 
 Every answer is checked by an **independent verifier** (`src/verify.cpp`) against the original, unscaled, unpresolved problem, and the reported status follows that verifier — not the engine's own view.
