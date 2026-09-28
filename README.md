@@ -74,21 +74,21 @@
 ```mermaid
 flowchart TB
     %% Central UVP
-    UVP["🎯 **SOVEREIGN OPTIMIZATION SOLVER**\nFrom-scratch • License-free • Verified • GPU-native\n\nBuilt for Indian Industrial Sovereignty"]
+    UVP["SOVEREIGN OPTIMIZATION SOLVER\nFrom-scratch . License-free . Verified . GPU-native\n\nBuilt for Indian Industrial Sovereignty"]
     
     %% Four Pillars
-    P1["🆓 **ZERO LICENSE COST**\n━━━━━━━━━━━━━━━━━━━━\n✅ No recurring fees ever\n✅ No per-core / per-user limits\n✅ MIT license — commercial friendly\n✅ Run anywhere: cloud, on-prem, air-gapped"]
+    P1["ZERO LICENSE COST\n================================\nNo recurring fees ever\nNo per-core / per-user limits\nMIT license - commercial friendly\nRun anywhere: cloud, on-prem, air-gapped"]
     
-    P2["🏁 **RACE TO TRUTH**\n━━━━━━━━━━━━━━━━━━━━\n✅ 4 engines compete concurrently\n✅ First *verified* answer wins\n✅ Independent KKT verifier gates every result\n✅ No false optima, no silent failures"]
+    P2["RACE TO TRUTH\n================================\n4 engines compete concurrently\nFirst verified answer wins\nIndependent KKT verifier gates every result\nNo false optima, no silent failures"]
     
-    P3["⚡ **GPU-NATIVE PERFORMANCE**\n━━━━━━━━━━━━━━━━━━━━\n✅ Hand-written CUDA kernels (PDLP)\n✅ 6× speedup at 1M variables\n✅ Zero cuBLAS/cuSPARSE dependency\n✅ Deterministic, bit-reproducible CPU↔GPU"]
+    P3["GPU-NATIVE PERFORMANCE\n================================\nHand-written CUDA kernels (PDLP)\n6x speedup at 1M variables\nZero cuBLAS/cuSPARSE dependency\nDeterministic, bit-reproducible CPU<->GPU"]
     
-    P4["🏛️ **SOVEREIGN TECH STACK**\n━━━━━━━━━━━━━━━━━━━━\n✅ Own sparse LU (simplex)\n✅ Own sparse LDLᵀ + AMD (IPM)\n✅ Own SpMV, ordering, factorization\n✅ Zero external solver/LA dependencies"]
+    P4["SOVEREIGN TECH STACK\n================================\nOwn sparse LU (simplex)\nOwn sparse LDLᵀ + AMD (IPM)\nOwn SpMV, ordering, factorization\nZero external solver/LA dependencies"]
     
     %% Differentiators that cut across pillars
-    D1["🔍 **FULL TRANSPARENCY**\nEvery algorithm in source\nMath traced to papers in `Math/`"]
-    D2["🔓 **NO VENDOR LOCK-IN**\nModify, extend, embed freely\nWhite-label ready for Indian OEMs"]
-    D3["🏭 **INDUSTRIAL MILP READY**\nProbing, c-MIR multi-row, VUB\nReliability branching, RINS/RENS/pump"]
+    D1["FULL TRANSPARENCY\nEvery algorithm in source\nMath traced to papers in `Math/`"]
+    D2["NO VENDOR LOCK-IN\nModify, extend, embed freely\nWhite-label ready for Indian OEMs"]
+    D3["INDUSTRIAL MILP READY\nProbing, c-MIR multi-row, VUB\nReliability branching, RINS/RENS/pump"]
     
     %% Connections
     UVP --> P1
@@ -176,25 +176,25 @@ Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its 
 ```mermaid
 flowchart TD
     %% Start
-    START["📚 **RESEARCH & DESIGN**\nPapers → Pipeline docs → Specs"]
+    START["RESEARCH & DESIGN\nPapers -> Pipeline docs -> Specs"]
     
     %% Foundation (parallel)
-    FOUNDATION["🔧 **BUILD FOUNDATION**\nSparse LA · LU · LDLᵀ · AMD\nScaling · Presolve"]
+    FOUNDATION["BUILD FOUNDATION\nSparse LA . LU . LDLᵀ . AMD\nScaling . Presolve"]
     
     %% Engines (parallel development)
-    SIMPLEX["⚙️ Simplex Engine"]
-    IPM["📈 IPM Engine"]
-    PDLP["⚡ PDLP Engine\n(CPU + GPU)"]
-    MILP["🌳 MILP Engine"]
+    SIMPLEX["Simplex Engine"]
+    IPM["IPM Engine"]
+    PDLP["PDLP Engine\n(CPU + GPU)"]
+    MILP["MILP Engine"]
     
     %% Intelligence
-    INTEL["🧠 **INTELLIGENCE LAYER**\nVerifier · Crossover · Postsolve"]
+    INTEL["INTELLIGENCE LAYER\nVerifier . Crossover . Postsolve"]
     
     %% Orchestration
-    ORCH["🎭 **ORCHESTRATE & INTERFACE**\nPortfolio · Race · CLI · Web · Python"]
+    ORCH["ORCHESTRATE & INTERFACE\nPortfolio . Race . CLI . Web . Python"]
     
     %% Validate
-    VALIDATE["✅ **VALIDATE & DELIVER**\nBenchmarks · vs HiGHS · Deploy"]
+    VALIDATE["VALIDATE & DELIVER\nBenchmarks . vs HiGHS . Deploy"]
     
     %% Flow
     START --> FOUNDATION
@@ -322,18 +322,18 @@ All algorithms are implemented from the mathematical literature. The three pipel
 ```mermaid
 flowchart TD
     %% Input
-    A[("📄 MPS / QPS File")] --> B["MPS/QPS Reader\n(free/fixed format, RANGES,\nBOUNDS, integer markers, Q matrix)"]
+    A["MPS / QPS File"] --> B["MPS/QPS Reader\n(free/fixed format, RANGES,\nBOUNDS, integer markers, Q matrix)"]
     
     %% Presolve & Scaling (common to all)
     B --> C["Presolve\n(empty/singleton/redundant/forcing rows,\nfixed columns, doubletons, implied-free,\ndual fixing, integer bound rounding)"]
-    C --> D["Scaling\n(Ruiz equilibration + Pock–Chambolle\ninteger columns never scaled, Q scaled symmetrically)"]
+    C --> D["Scaling\n(Ruiz equilibration + Pock-Chambolle\ninteger columns never scaled, Q scaled symmetrically)"]
     
     %% Problem type detection
     D --> E{Problem Type?}
     
     %% LP Path
     E -->|LP| F["LP Solvers"]
-    F --> G1["Dual Revised Simplex\n(Markowitz LU, Forrest–Tomlin,\ndual steepest edge, Harris bound-flipping,\ncost perturbation, Bland fallback)"]
+    F --> G1["Dual Revised Simplex\n(Markowitz LU, Forrest-Tomlin,\ndual steepest edge, Harris bound-flipping,\ncost perturbation, Bland fallback)"]
     F --> G2["Primal Simplex\n(phase 1: sum of infeasibilities,\nDevex phase 2)"]
     F --> G3["Interior Point Method\n(Mehrotra predictor-corrector +\nGondzio centrality correctors,\nsparse LDLᵀ with AMD ordering,\ninertia control, iterative refinement)"]
     F --> G4["PDLP (First-Order)\n(restarted PDHG, adaptive steps,\nprimal weight, KKT restarts)\nCPU + GPU (hand-written CUDA)"]
@@ -341,7 +341,7 @@ flowchart TD
     %% LP Portfolio
     G1 --> H["Concurrent Portfolio\n(first verified answer wins)\nor Auto Race (simplex vs PDLP+cross)"]
     G2 --> H
-    G3 --> I["Crossover\n(pivoting crash: PDLP point →\nsimplex basis → simplex finish)"]
+    G3 --> I["Crossover\n(pivoting crash: PDLP point ->\nsimplex basis -> simplex finish)"]
     G4 --> I
     I --> H
     
@@ -360,7 +360,7 @@ flowchart TD
     
     %% Verification (common)
     H --> N["Postsolve\n(unscale, undo presolve LIFO)"]
-    N --> O["Independent KKT Verifier\n(on original unscaled problem)\neps_P, eps_D, eps_G\n→ status: optimal/near_optimal/inaccurate/\ninfeasible/unbounded/…"]
+    N --> O["Independent KKT Verifier\n(on original unscaled problem)\neps_P, eps_D, eps_G\n-> status: optimal/near_optimal/inaccurate/\ninfeasible/unbounded/..."]
     
     %% Styling
     classDef input fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
@@ -384,9 +384,9 @@ flowchart TD
 ```mermaid
 flowchart TB
     %% Entry Points
-    CLI["🖥️ CLI\n(main.cpp)"]
-    UI["🌐 Web UI\n(tools/ui_server.py)"]
-    PY["🐍 Python API\n(tools/sovereign.py)"]
+    CLI["CLI\n(main.cpp)"]
+    UI["Web UI\n(tools/ui_server.py)"]
+    PY["Python API\n(tools/sovereign.py)"]
     
     %% Core Solve Orchestration
     CLI --> SOLVE["solve.cpp\n(orchestrates all engines)"]
@@ -825,25 +825,25 @@ python tools/benchmark.py --exe build/Release/sovereign_solve.exe --set all --hi
 ```mermaid
 flowchart LR
     %% Value Proposition
-    VP["💎 Value Proposition\nSovereign LP/MILP/QP Solver\n• Zero license cost\n• Full algorithm transparency\n• No vendor lock-in\n• GPU accelerated\n• Verified correctness"]
+    VP["Value Proposition\nSovereign LP/MILP/QP Solver\n. Zero license cost\n. Full algorithm transparency\n. No vendor lock-in\n. GPU accelerated\n. Verified correctness"]
     
     %% Target Markets
-    VP --> M1["🏭 Indian Industry\nRefining, petrochemicals,\npower, logistics, steel,\ncement, fertilizers"]
-    VP --> M2["🏛️ Strategic / Govt\nDefence logistics,\nnuclear, space, grid,\npolicy planning"]
-    VP --> M3["🎓 Academia & R&D\nIITs, NITs, CSIR labs,\noptimization research,\nstudent training"]
-    VP --> M4["💻 Software Integrators\nERP/APS vendors,\ndigital twin builders,\nAI/ML platforms needing\noptimization layer"]
+    VP --> M1["Indian Industry\nRefining, petrochemicals,\npower, logistics, steel,\ncement, fertilizers"]
+    VP --> M2["Strategic / Govt\nDefence logistics,\nnuclear, space, grid,\npolicy planning"]
+    VP --> M3["Academia & R&D\nIITs, NITs, CSIR labs,\noptimization research,\nstudent training"]
+    VP --> M4["Software Integrators\nERP/APS vendors,\ndigital twin builders,\nAI/ML platforms needing\noptimization layer"]
     
     %% Business Models
-    VP --> BM1["🆓 Open Core\nMIT-license solver core\nCommunity adoption\nEcosystem growth"]
-    VP --> BM2["🛠️ Professional Services\nDeployment, tuning,\ncustom cuts/heuristics,\nmodel formulation help"]
-    VP --> BM3["☁️ Managed Service\nOn-prem / air-gapped\nSLA support, updates,\ncertification"]
-    VP --> BM4["🧩 OEM / Embedding\nWhite-label in Indian\nAPS/SCM/ERP products\nRoyalty-free"]
+    VP --> BM1["Open Core\nMIT-license solver core\nCommunity adoption\nEcosystem growth"]
+    VP --> BM2["Professional Services\nDeployment, tuning,\ncustom cuts/heuristics,\nmodel formulation help"]
+    VP --> BM3["Managed Service\nOn-prem / air-gapped\nSLA support, updates,\ncertification"]
+    VP --> BM4["OEM / Embedding\nWhite-label in Indian\nAPS/SCM/ERP products\nRoyalty-free"]
     
     %% Competitive Position
-    VP --> CP["⚔️ Competitive Position\nvs CPLEX/Gurobi/Xpress:\n  ✅ No recurring fees\n  ✅ Full source access\n  ✅ Indian data sovereignty\n  ⚠️ Speed gap on hardest MIP\n  ⚠️ Fewer advanced MILP cuts\nvs HiGHS/COIN-OR:\n  ✅ GPU first-order (PDLP)\n  ✅ Concurrent portfolio\n  ✅ Independent verifier\n  ✅ Industrial MILP features\n  ⚠️ Smaller community"]
+    VP --> CP["Competitive Position\nvs CPLEX/Gurobi/Xpress:\n  No recurring fees\n  Full source access\n  Indian data sovereignty\n  Speed gap on hardest MIP\n  Fewer advanced MILP cuts\nvs HiGHS/COIN-OR:\n  GPU first-order (PDLP)\n  Concurrent portfolio\n  Independent verifier\n  Industrial MILP features\n  Smaller community"]
     
     %% Go-to-Market
-    VP --> GTM["🚀 Go-to-Market\n1. Pilot with MRPL/refineries\n2. Open benchmark results\n3. Student/intern pipeline\n4. Integrate with Indian\n   modeling tools (Pyomo,\n   custom)\n5. Certify for strategic use"]
+    VP --> GTM["Go-to-Market\n1. Pilot with MRPL/refineries\n2. Open benchmark results\n3. Student/intern pipeline\n4. Integrate with Indian\n   modeling tools (Pyomo,\n   custom)\n5. Certify for strategic use"]
     
     %% Styling
     style VP fill:#fff3e0,stroke:#ef6c00,stroke-width:3px
@@ -865,9 +865,9 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    F["✅ **FEASIBLE**\nWorking solver, proven on\nNetlib/MIPLIB/Maros-Mézáros"]
-    V["💰 **VIABLE**\nZero license cost vs\n₹Cr/yr commercial fees"]
-    S["🚀 **SCALABLE**\n1M vars on GPU,\nparallel MILP tree"]
+    F["FEASIBLE\nWorking solver, proven on\nNetlib/MIPLIB/Maros-Mezaros"]
+    V["VIABLE\nZero license cost vs\n₹Cr/yr commercial fees"]
+    S["SCALABLE\n1M vars on GPU,\nparallel MILP tree"]
     
     F --> V
     V --> S
@@ -932,25 +932,25 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph IMPACT["🎯 POTENTIAL IMPACT"]
-        I1["🏭 **Industry**\nRefineries, power, logistics,\nsteel, cement — better plans,\nfaster, cheaper"]
-        I2["🏛️ **Government**\nDefence, space, nuclear, grid —\nsovereign, auditable,\nno vendor dependency"]
-        I3["🎓 **Academia**\nIITs, NITs, CSIR — open source\nfor research, teaching,\nstudent innovation"]
-        I4["💻 **Software Ecosystem**\nIndian APS/SCM/ERP vendors —\nembed royalty-free,\nbuild differentiated products"]
+    subgraph IMPACT["POTENTIAL IMPACT"]
+        I1["Industry\nRefineries, power, logistics,\nsteel, cement — better plans,\nfaster, cheaper"]
+        I2["Government\nDefence, space, nuclear, grid —\nsovereign, auditable,\nno vendor dependency"]
+        I3["Academia\nIITs, NITs, CSIR — open source\nfor research, teaching,\nstudent innovation"]
+        I4["Software Ecosystem\nIndian APS/SCM/ERP vendors —\nembed royalty-free,\nbuild differentiated products"]
     end
     
-    subgraph BENEFITS["💎 BENEFITS"]
-        B1["💰 **Economic**\n• ₹50L–5Cr/yr license savings per firm\n• 6× GPU speedup = more scenarios\n• No per-core fees at scale\n• Import substitution: ₹1000Cr+ sector"]
-        B2["🌐 **Geo-political**\n• Strategic autonomy in optimization\n• No foreign license audits\n• Data stays in India\n• Sanctions-proof critical infrastructure"]
-        B3["👥 **Social**\n• Student access to industrial-grade solver\n• Open research platform\n• Talent pipeline for Indian industry\n• Democratized optimization"]
-        B4["🔍 **Transparency**\n• Full source access — no black boxes\n• Math traced to papers in `Math/`\n• Independent KKT verifier\n• Reproducible, auditable results"]
-        B5["🔒 **Data Privacy**\n• Runs fully offline / air-gapped\n• No cloud, no telemetry\n• Model data never leaves premises\n• Zero vendor access to IP"]
+    subgraph BENEFITS["BENEFITS"]
+        B1["Economic\n. ₹50L–5Cr/yr license savings per firm\n. 6x GPU speedup = more scenarios\n. No per-core fees at scale\n. Import substitution: ₹1000Cr+ sector"]
+        B2["Geo-political\n. Strategic autonomy in optimization\n. No foreign license audits\n. Data stays in India\n. Sanctions-proof critical infrastructure"]
+        B3["Social\n. Student access to industrial-grade solver\n. Open research platform\n. Talent pipeline for Indian industry\n. Democratized optimization"]
+        B4["Transparency\n. Full source access — no black boxes\n. Math traced to papers in `Math/`\n. Independent KKT verifier\n. Reproducible, auditable results"]
+        B5["Data Privacy\n. Runs fully offline / air-gapped\n. No cloud, no telemetry\n. Model data never leaves premises\n. Zero vendor access to IP"]
     end
     
-    subgraph MARKET["📊 INDIA vs ABROAD"]
-        M1["🇮🇳 **India**\n• Zero license cost\n• MIT license — commercial free\n• Local support, customization\n• GPU-native, verified"]
-        M2["🌍 **Abroad (CPLEX/Gurobi/Xpress)**\n• ₹50L–5Cr/yr recurring\n• Proprietary, lock-in\n• No source access\n• CPU-first, limited GPU"]
-        M3["📈 **Market Shift**\n• Open core disrupts license model\n• Indian OEMs gain competitive edge\n• Global south adoption potential"]
+    subgraph MARKET["INDIA vs ABROAD"]
+        M1["India\n. Zero license cost\n. MIT license — commercial free\n. Local support, customization\n. GPU-native, verified"]
+        M2["Abroad (CPLEX/Gurobi/Xpress)\n. ₹50L–5Cr/yr recurring\n. Proprietary, lock-in\n. No source access\n. CPU-first, limited GPU"]
+        M3["Market Shift\n. Open core disrupts license model\n. Indian OEMs gain competitive edge\n. Global south adoption potential"]
     end
     
     IMPACT --> BENEFITS
