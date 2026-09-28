@@ -575,13 +575,15 @@ Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt
     // Portfolio-wide deadline: when the time limit passes, every engine is
     // told to stop. Without it an engine with no time limit of its own (PDLP
     // runs to an iteration cap) kept the solve alive after the others quit.
-    bool all_done = false;
+    bool all_done = false, timed_out = false;
     std::thread deadline;
     if (std::isfinite(opt.time_limit) && opt.time_limit < 1e20)
         deadline = std::thread([&]() {
             std::unique_lock<std::mutex> lk(wait_mu);
-            if (!wait_cv.wait_for(lk, std::chrono::duration<double>(opt.time_limit), [&]() { return stop.load() || all_done; }))
+            if (!wait_cv.wait_for(lk, std::chrono::duration<double>(opt.time_limit), [&]() { return stop.load() || all_done; })) {
+                timed_out = true;
                 stop.store(true);
+            }
             wait_cv.notify_all();                        // release helpers still waiting to start
         });
     // The dual simplex runs on the calling thread (no spawn, warm caches):
@@ -624,6 +626,7 @@ Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt
         // No engine produced a point: report the most informative status.
         s.status = out[0].st != "not run" ? out[0].st : out[1].st;
         if (s.status == "dual_infeasible") s.status = "unbounded_or_infeasible";
+        if (timed_out && s.status == "stopped") s.status = "time_limit";   // stopped by the deadline, not by a winner
         s.engine_used = "concurrent (" + summary + ")";
         return s;
     }
@@ -632,6 +635,7 @@ Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt
     s.iterations = o.iterations;
     s.simplex_seconds = o.seconds;
     s.status = o.st;
+    if (timed_out && s.status == "stopped") s.status = "time_limit";
     if (o.has_point) {
         s.has_solution = true;
         s.objective = report_objective(ranged, o.k.objective);

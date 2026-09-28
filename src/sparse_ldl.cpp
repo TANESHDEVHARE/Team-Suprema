@@ -34,7 +34,7 @@ std::vector<int> min_degree_order(const SymMatrix& K, const std::atomic<bool>* c
     order.reserve(n);
     std::vector<int> L;
     for (int k = 0; k < n; ++k) {
-        if ((k & 255) == 0 && cancel && cancel->load(std::memory_order_relaxed)) {
+        if ((k & 15) == 0 && cancel && cancel->load(std::memory_order_relaxed)) {
             // Cancelled: finish with the remaining nodes in index order (a
             // valid permutation; the caller discards the factorization).
             for (int i = 0; i < n; ++i) if (!eliminated[i]) order.push_back(i);
@@ -190,7 +190,7 @@ int SparseLDL::factor(const SymMatrix& K, const std::vector<signed char>& sign, 
     std::vector<int> rel(n_, -1), head(ns, -1), next(ns, -1), ptr(ns, 0);
     std::vector<double> wk, tmp;
     for (int s = 0; s < ns; ++s) {
-        if ((s & 15) == 0 && cancelled()) return -1;
+        if (cancelled()) return -1;        // per supernode: dense trailing ones can take seconds each
         const int f = sn_start_[s], l = sn_start_[s + 1], w = l - f;
         const int* R = sn_rows_.data() + sn_rowptr_[s];
         const int r = sn_rowptr_[s + 1] - sn_rowptr_[s], nr = w + r;
@@ -202,6 +202,7 @@ int SparseLDL::factor(const SymMatrix& K, const std::vector<signed char>& sign, 
             for (int p = Lcp_[j]; p < Lcp_[j + 1]; ++p) B[rel[Lci_[p]] + (j - f) * nr] += K.val[Lmap_[p]];
         // updates from descendant supernodes whose next row falls in [f, l)
         for (int d = head[s], nd; d != -1; d = nd) {
+            if (cancelled()) return -1;
             nd = next[d];
             const int fd = sn_start_[d], wd = sn_start_[d + 1] - fd;
             const int* Rd = sn_rows_.data() + sn_rowptr_[d];
