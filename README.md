@@ -175,12 +175,12 @@ Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its 
 
 ```mermaid
 flowchart TD
-    A["📐 **MATH & DESIGN**\nPapers → Pipeline docs\n`PIPELINE_NOTES.md`"]
-    B["🔢 **CORE LA**\nSparse LU, LDLᵀ, AMD\nCSR/CSC, SpMV"]
-    C["⚙️ **ENGINES**\nSimplex · IPM · PDLP\nMILP (Branch-and-Cut)"]
-    D["🔧 **INFRA**\nMPS/QPS · Presolve\nScaling · Verifier"]
-    E["🎭 **ORCHESTRATE**\nPortfolio · Race · UI\nCLI · Web · Python"]
-    F["✅ **VALIDATE**\nNetlib · MIPLIB · QP\nHiGHS + Verifier audit"]
+    A["1️⃣ **DEFINE MATHEMATICS**\nStudy research papers\nWrite design documents\nMap math to code structure"]
+    B["2️⃣ **BUILD FOUNDATION**\nCreate sparse matrix library\nBuild linear algebra core\nLU & LDLᵀ factorization"]
+    C["3️⃣ **DEVELOP SOLVERS**\nLP: Simplex + Interior Point\nQP: Quadratic Programming\nMILP: Branch & Cut"]
+    D["4️⃣ **ADD INTELLIGENCE**\nPresolve (simplify problems)\nScaling (balance numbers)\nVerification (check answers)"]
+    E["5️⃣ **CONNECT & ACCELERATE**\nRun multiple solvers in parallel\nGPU acceleration for large problems\nWeb & Command-line interfaces"]
+    F["6️⃣ **TEST & PROVE**\nStandard benchmarks (Netlib, MIPLIB)\nCompare with commercial solvers\nIndependent verification"]
     
     A --> B --> C --> D --> E --> F
     
