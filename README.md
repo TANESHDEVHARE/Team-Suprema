@@ -63,6 +63,62 @@ flowchart TB
 
 ---
 
+## Methodology
+
+### 1. Mathematical Foundation — From First Principles
+Every algorithm is implemented from peer-reviewed literature, not wrapped from existing libraries:
+- **Simplex**: Chvátal, Vanderbei, Forrest-Tomlin, Harris, Suhl-Suhl
+- **IPM**: Mehrotra, Gondzio, Wright, Vanderbei (quasidefinite systems)
+- **PDLP**: Applegate et al. (NeurIPS 2021, Math. Prog. 2023)
+- **MILP**: Nemhauser-Wolsey, Marchand-Wolsey, Fischetti-Lodi, Danna-Rothberg-Le Pape
+- **Sparse LA**: Davis (direct methods), AMD ordering (Amestoy-Davis-Duff)
+
+Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its mathematical source.
+
+### 2. Algorithmic Strategy per Problem Class
+
+| Class | Primary Engine | Fallback / Hybrid | Key Design Choices |
+|-------|----------------|-------------------|---------------------|
+| **LP** | Dual revised simplex (Markowitz LU, steepest edge, Harris BFRT) | Primal simplex, IPM+crossover, PDLP+crossover | Concurrent portfolio — first *verified* answer wins |
+| **QP** | Primal-dual IPM (Mehrotra + Gondzio correctors) | — | Quasidefinite augmented system, equal primal/dual steps |
+| **MILP** | Branch-and-cut (warm-started dual simplex at every node) | — | Parallel root (probing + cuts), reliability branching, compact nodes |
+
+### 3. Numerical Robustness — Built In, Not Bolted On
+
+| Technique | Where Applied | Purpose |
+|-----------|---------------|---------|
+| Iterative refinement | Simplex (every solve), IPM (up to 10 steps) | Remove rounding error & regularization bias |
+| Inertia control / dynamic regularization | IPM (LDLᵀ) | Fix wrong-sign pivots adaptively |
+| Dependent equality row removal | IPM | Prevent singular KKT, dual corruption |
+| Cost perturbation (deterministic) | Simplex | Handle dual degeneracy |
+| Bland's rule fallback | Simplex | Guaranteed termination |
+| Symmetric Q scaling | QP | Preserve convexity |
+| Integer columns never scaled | Presolve/Postsolve | Preserve integrality exactly |
+
+### 4. Verification Methodology — Trust But Verify
+**Independent KKT verifier** (`src/verify.cpp`) runs on the **original, unscaled, unpresolved** problem:
+- Checks primal feasibility (eps_P), dual feasibility (eps_D), duality gap (eps_G)
+- Status follows verifier, not engine: `optimal` (≤1e-6), `near_optimal` (≤1e-4), `inaccurate` (>1e-4)
+- `--check` verifies *any* solver's solution file
+
+### 5. Parallelization Strategy
+
+| Level | Approach |
+|-------|----------|
+| **LP Portfolio** | 4 engines on separate threads; first verified wins; helpers start only if dual simplex >50ms |
+| **MILP Root** | Probing in chunks (snapshot+merge); cut separation per-thread with scratch buffers; deterministic merge |
+| **MILP Tree** | Separate mutexes (node pool / incumbent / pseudocosts); compact nodes (own changes + shared parent trail) |
+| **GPU** | PDLP only — warp-per-row SpMV, fused kernels, deterministic reductions |
+
+### 6. GPU Approach — Sovereign Kernels
+- **No cuBLAS/cuSPARSE** — hand-written CUDA only
+- **Warp-per-row CSR SpMV** for A·x and Aᵀ·y
+- **Fused kernels** for primal/dual steps + adaptive step-size reductions
+- **Deterministic reductions**: per-block partials summed in fixed order → CPU↔GPU bit-reproducible
+- **6× speedup** at 1M variables (transport LP)
+
+---
+
 A from-scratch mathematical optimization engine for **LP, MILP and convex QP**, written in C++17 (plus CUDA for the GPU path). No third-party solver or linear-algebra library is used anywhere in the solve path: the sparse LU, the sparse LDLᵀ, the orderings, the simplex, the interior-point method, the PDLP engine and every branch-and-cut component are implemented here from the published mathematics. The design follows the pipeline documents in `Math/` (with the corrections recorded in `Math/PIPELINE_NOTES.md`).
 
 Every answer is checked by an **independent verifier** (`src/verify.cpp`) against the original, unscaled, unpresolved problem, and the reported status follows that verifier — not the engine's own view.
