@@ -27,6 +27,29 @@
 
 ---
 
+## 🛠️ Tech Stack
+
+| Layer | Technologies |
+|-------|--------------|
+| **Core Language** | C++17 (ISO standard, no extensions) |
+| **GPU Compute** | CUDA 11+/12+ (hand-written kernels, no cuBLAS/cuSPARSE) |
+| **Build System** | CMake 3.18+ (auto-detects CUDA, supports `-DSOVEREIGN_FORCE_CPU=ON`) |
+| **Parallelism** | C++17 `std::thread`, `std::atomic`, `std::mutex`, `std::condition_variable` |
+| **Linear Algebra** | **Custom**: Sparse CSR/CSC, Markowitz LU (Forrest-Tomlin), AMD-ordered LDLᵀ, SpMV |
+| **I/O** | MPS/QPS parser (free/fixed format, RANGES, BOUNDS, QUADOBJ/QMATRIX) |
+| **CLI** | Pure C++ (arg parsing, colored output, JSON/CSV/.sol writers) |
+| **Web UI** | Python 3 stdlib only (`http.server`, `json`, `threading`) — zero deps |
+| **Benchmarking** | Python 3 + `highspy` (optional HiGHS comparison) |
+| **Testing** | Custom C++ test binaries (`test_lu`, `test_ldl`, `run_checks`) |
+| **Documentation** | Mermaid diagrams (rendered on GitHub/GitLab), Markdown |
+| **Version Control** | Git, GitHub |
+
+**No external solver libraries** (CBC, HiGHS, CLP, OSQP, etc.)  
+**No external linear-algebra libraries** (SuiteSparse, MKL, Eigen, BLAS, LAPACK)  
+**No cloud dependencies** — runs fully offline, air-gapped compatible
+
+---
+
 ## 🎯 Unique Value Proposition
 
 > **The only from-scratch, license-free LP/MILP/QP solver with GPU-accelerated first-order methods, concurrent multi-engine portfolio, and independent KKT verification — built entirely from mathematical foundations for Indian industrial sovereignty.**
