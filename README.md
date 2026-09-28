@@ -572,6 +572,47 @@ python tools/benchmark.py --exe build/Release/sovereign_solve.exe --set all --hi
 | Medium | GPU cut scoring, parallel primal heuristics | Large |
 | Future | NLP solver (filter SQP) → MINLP via outer approximation | Large |
 | Future | Modeling language (Pyomo/AMPL-like) emitting MPS/QPS | Separate project |
+ 
+---
+
+## Business Model & Market Analysis
+
+```mermaid
+flowchart LR
+    %% Value Proposition
+    VP["💎 Value Proposition\nSovereign LP/MILP/QP Solver\n• Zero license cost\n• Full algorithm transparency\n• No vendor lock-in\n• GPU accelerated\n• Verified correctness"]
+    
+    %% Target Markets
+    VP --> M1["🏭 Indian Industry\nRefining, petrochemicals,\npower, logistics, steel,\ncement, fertilizers"]
+    VP --> M2["🏛️ Strategic / Govt\nDefence logistics,\nnuclear, space, grid,\npolicy planning"]
+    VP --> M3["🎓 Academia & R&D\nIITs, NITs, CSIR labs,\noptimization research,\nstudent training"]
+    VP --> M4["💻 Software Integrators\nERP/APS vendors,\ndigital twin builders,\nAI/ML platforms needing\noptimization layer"]
+    
+    %% Business Models
+    VP --> BM1["🆓 Open Core\nMIT-license solver core\nCommunity adoption\nEcosystem growth"]
+    VP --> BM2["🛠️ Professional Services\nDeployment, tuning,\ncustom cuts/heuristics,\nmodel formulation help"]
+    VP --> BM3["☁️ Managed Service\nOn-prem / air-gapped\nSLA support, updates,\ncertification"]
+    VP --> BM4["🧩 OEM / Embedding\nWhite-label in Indian\nAPS/SCM/ERP products\nRoyalty-free"]
+    
+    %% Competitive Position
+    VP --> CP["⚔️ Competitive Position\nvs CPLEX/Gurobi/Xpress:\n  ✅ No recurring fees\n  ✅ Full source access\n  ✅ Indian data sovereignty\n  ⚠️ Speed gap on hardest MIP\n  ⚠️ Fewer advanced MILP cuts\nvs HiGHS/COIN-OR:\n  ✅ GPU first-order (PDLP)\n  ✅ Concurrent portfolio\n  ✅ Independent verifier\n  ✅ Industrial MILP features\n  ⚠️ Smaller community"]
+    
+    %% Go-to-Market
+    VP --> GTM["🚀 Go-to-Market\n1. Pilot with MRPL/refineries\n2. Open benchmark results\n3. Student/intern pipeline\n4. Integrate with Indian\n   modeling tools (Pyomo,\n   custom)\n5. Certify for strategic use"]
+    
+    %% Styling
+    style VP fill:#fff3e0,stroke:#ef6c00,stroke-width:3px
+    style M1 fill:#e8f5e9,stroke:#2e7d32
+    style M2 fill:#e8f5e9,stroke:#2e7d32
+    style M3 fill:#e8f5e9,stroke:#2e7d32
+    style M4 fill:#e8f5e9,stroke:#2e7d32
+    style BM1 fill:#e3f2fd,stroke:#1565c0
+    style BM2 fill:#e3f2fd,stroke:#1565c0
+    style BM3 fill:#e3f2fd,stroke:#1565c0
+    style BM4 fill:#e3f2fd,stroke:#1565c0
+    style CP fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style GTM fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+```
 
 ---
 
