@@ -1,0 +1,3 @@
+@echo off
+rem Command-line showcase: sovereign solve^|compare^|scale^|verify^|info ...
+python "%~dp0tools\sovereign.py" %*

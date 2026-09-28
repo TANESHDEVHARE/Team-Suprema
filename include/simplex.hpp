@@ -45,6 +45,13 @@ struct SimplexOptions {
     bool harris_bfrt = true;           // off: textbook min-ratio test, no bound flipping
     bool bland_fallback = true;        // off: no anti-cycling rule
     bool scaling = true;               // off: solve the unscaled (presolved) matrix
+    // Concurrent LP portfolio (solve_mps_concurrent): the secondary engines
+    // start only if the dual simplex has not finished after these delays.
+    double concurrent_delay = 0.05;    // IPM (seconds)
+    double primal_delay = 1.0;         // primal simplex: rarely beats the dual, so it joins late
+    long long concurrent_min_nnz = 5000; // below this, the dual simplex runs alone (helpers cannot win)
+    double pdlp_delay = 0.5;           // PDLP (seconds)
+    long long pdlp_min_nnz = 200000;   // PDLP joins only at or above this many nonzeros
     int verbose = 0;                   // 0 silent, 1 summary, 2 periodic log
     // Warm start: make the starting basis dual feasible by cost shifting
     // instead of dual phase 1 (the shifts are removed at the end and a primal
@@ -81,6 +88,11 @@ public:
     // "unbounded", "dual_infeasible", "iteration_limit", "time_limit" or
     // "numerical_error".
     std::string solve(const SimplexOptions& opt = SimplexOptions());
+
+    // Primal simplex from the current basis: phase 1 minimizes the sum of
+    // primal infeasibilities, phase 2 is the Devex primal loop. Same return
+    // values as solve(); used as one engine of the concurrent LP portfolio.
+    std::string solve_primal(const SimplexOptions& opt = SimplexOptions());
 
     // Replace the structural costs (length n). The basis is kept; the next
     // solve() restores dual feasibility (feasibility pump, sub-MIP objectives).
@@ -179,6 +191,7 @@ private:
     std::string dual_phase1();
     std::string dual_loop(bool phase1);
     std::string primal_loop();
+    std::string primal_phase1();
     void perturb_costs();
     void restore_costs();
 };

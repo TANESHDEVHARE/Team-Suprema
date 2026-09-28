@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sovereign Solver</title>
+<style>
+:root {
+  --bg: #f2f4f5; --panel: #ffffff; --ink: #121a21; --ink2: #4a5561; --muted: #6d7883; --rule: #d9dee2; --rule2: #c3cad0;
+  --accent: #0e6f86; --accent-ink: #ffffff; --accent-soft: #e2eff3;
+  --good: #0c8a0c; --good-bg: #e5f3e5; --warn: #b37700; --warn-bg: #fcf1d9; --crit: #c23232; --crit-bg: #fae3e3;
+  --inc: #2a78d6; --bnd: #eb6834; --grid: #e6e9ec; --code-bg: #f6f7f8;
+  --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #111416; --panel: #1a1e21; --ink: #eceff1; --ink2: #b3bcc4; --muted: #89939c; --rule: #2b3136; --rule2: #3a4147;
+    --accent: #3fa9c1; --accent-ink: #0b1215; --accent-soft: #16303a;
+    --good: #4cc24c; --good-bg: #16301a; --warn: #e3b341; --warn-bg: #3a2e10; --crit: #ef6b6b; --crit-bg: #3b1818;
+    --inc: #4b95ea; --bnd: #f07c4b; --grid: #262b2f; --code-bg: #14181b;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
+button, input, select { font: inherit; color: inherit; }
+header.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--rule); }
+header.top h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .01em; }
+header.top .sub { color: var(--muted); font-size: 12px; }
+.env { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.pill { font-size: 12px; padding: 2px 9px; border: 1px solid var(--rule2); border-radius: 999px; color: var(--ink2); white-space: nowrap; }
+main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; padding: 16px 20px 40px; align-items: start; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+.panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; }
+.side { display: flex; flex-direction: column; gap: 16px; }
+.box { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.box h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+.step { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; margin-right: 6px; }
+.drop { border: 1.5px dashed var(--rule2); border-radius: 8px; padding: 18px 12px; text-align: center; color: var(--ink2); cursor: pointer; }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop b { color: var(--ink); }
+.row { display: flex; gap: 8px; align-items: center; }
+.row > * { min-width: 0; }
+label.f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink2); flex: 1; }
+input[type=number], input[type=text], input[type=search], select { background: var(--panel); border: 1px solid var(--rule2); border-radius: 6px; padding: 6px 8px; width: 100%; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink2); }
+.help { font-size: 12px; color: var(--muted); }
+.btn { border: 1px solid var(--rule2); background: var(--panel); border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; flex: 1; }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+.btn.danger { color: var(--crit); }
+.btn.small { padding: 3px 9px; font-size: 12px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.history { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.history button { text-align: left; border: 1px solid var(--rule); background: transparent; border-radius: 6px; padding: 6px 8px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+.history button:hover { border-color: var(--accent); }
+.history button.sel { border-color: var(--accent); background: var(--accent-soft); }
+.results { display: flex; flex-direction: column; min-height: 520px; }
+.statusbar { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--rule); flex-wrap: wrap; }
+.statusbar .t { font-weight: 600; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 10px 2px 8px; border-radius: 999px; white-space: nowrap; }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.chip.good { background: var(--good-bg); color: var(--good); }
+.chip.warn { background: var(--warn-bg); color: var(--warn); }
+.chip.crit { background: var(--crit-bg); color: var(--crit); }
+.chip.run { background: var(--accent-soft); color: var(--accent); }
+.chip.idle { background: var(--code-bg); color: var(--muted); }
+.tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--rule); overflow-x: auto; }
+.tabs button { border: 0; background: none; padding: 10px 12px; cursor: pointer; color: var(--ink2); border-bottom: 2px solid transparent; white-space: nowrap; }
+.tabs button[aria-selected=true] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.tabpanel { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.empty { color: var(--muted); padding: 40px 10px; text-align: center; }
+.banner { border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.banner.good { background: var(--good-bg); } .banner.warn { background: var(--warn-bg); } .banner.crit { background: var(--crit-bg); }
+.banner .h { font-weight: 650; font-size: 15px; }
+.banner.good .h { color: var(--good); } .banner.warn .h { color: var(--warn); } .banner.crit .h { color: var(--crit); }
+.banner p { margin: 0; color: var(--ink2); font-size: 13px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.kpi { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.kpi .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.kpi .d { font-size: 12px; color: var(--ink2); overflow-wrap: anywhere; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.card { border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card h3 { margin: 0; font-size: 13px; font-weight: 650; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 5px 10px; border-bottom: 1px solid var(--rule); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); cursor: pointer; user-select: none; }
+th.l, td.l { text-align: left; }
+td.name { font-family: var(--mono); font-size: 12px; text-align: left; }
+.tablewrap { overflow: auto; max-height: 560px; border: 1px solid var(--rule); border-radius: 8px; }
+tbody tr:hover { background: var(--accent-soft); }
+.pass { color: var(--good); font-weight: 600; } .fail { color: var(--crit); font-weight: 600; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar input[type=search] { max-width: 260px; }
+.pager { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; margin-left: auto; }
+pre.log { margin: 0; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 12px; line-height: 1.45; max-height: 600px; overflow: auto; white-space: pre; }
+code { font-family: var(--mono); font-size: 12px; }
+.downloads { display: flex; gap: 8px; flex-wrap: wrap; }
+.downloads a { text-decoration: none; color: var(--ink); }
+.cmd { font-family: var(--mono); font-size: 12px; color: var(--ink2); overflow-wrap: anywhere; }
+.chart svg text { font-family: var(--sans); }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--ink2); }
+.legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+.err { color: var(--crit); font-size: 13px; }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Sovereign Solver</h1>
+    <div class="sub">LP · MILP · convex QP — from-scratch engines, every answer checked by an independent verifier</div>
+  </div>
+  <div class="env" id="env"></div>
+</header>
+
+<main>
+  <div class="side">
+    <section class="panel box" aria-labelledby="h-model">
+      <h2 id="h-model"><span class="step">1</span>Model</h2>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a model file">
+        <b>Drop an .mps / .qps file</b><br>or click to choose (.gz accepted)
+      </div>
+      <input type="file" id="file" accept=".mps,.qps,.gz,.MPS,.QPS" hidden>
+      <div class="row">
+        <select id="sample" aria-label="Sample problem"><option value="">…or pick a sample problem</option></select>
+        <button class="btn" id="load-sample">Load</button>
+      </div>
+      <div id="model-err" class="err" hidden></div>
+      <dl class="kv" id="model-info" hidden></dl>
+    </section>
+
+    <section class="panel box" aria-labelledby="h-solver">
+      <h2 id="h-solver"><span class="step">2</span>Solver</h2>
+      <label class="f">Engine
+        <select id="engine">
+          <option value="auto">Automatic (by problem type)</option>
+          <option value="concurrent">LP · concurrent portfolio</option>
+          <option value="dual">LP · dual simplex</option>
+          <option value="ipm">LP / QP · interior point</option>
+          <option value="crossover">LP · PDLP → crossover → simplex</option>
+          <option value="pdlp">LP · PDLP only (GPU if available)</option>
+          <option value="mip">MILP · branch-and-cut</option>
+        </select>
+      </label>
+      <div class="help" id="engine-help"></div>
+      <div class="row">
+        <label class="f">Time limit (s)<input type="number" id="tl" value="60" min="1" step="1"></label>
+        <label class="f" id="f-tol" hidden>PDLP tolerance<input type="number" id="tol" value="0.000001" step="any" min="0"></label>
+      </div>
+      <div class="row" id="mip-opts">
+        <label class="f">MILP threads<input type="number" id="threads" value="4" min="1" max="64"></label>
+        <label class="f">MILP gap (%)<input type="number" id="gap" value="0.01" step="any" min="0"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="presolve" checked> Presolve</label>
+      <div class="row">
+        <button class="btn primary" id="solve" disabled>Solve</button>
+        <button class="btn danger" id="cancel" hidden>Cancel</button>
+      </div>
+    </section>
+
+    <section class="panel box" aria-labelledby="h-hist">
+      <h2 id="h-hist">Runs this session</h2>
+      <div class="history" id="history"><div class="help">No runs yet.</div></div>
+    </section>
+  </div>
+
+  <section class="panel results" aria-label="Results">
+    <div class="statusbar">
+      <span class="chip idle" id="state-chip">idle</span>
+      <span class="t" id="state-text">Load a model and press Solve.</span>
+      <span class="help" id="elapsed"></span>
+    </div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="summary" aria-selected="true">Summary</button>
+      <button role="tab" data-tab="vars" aria-selected="false">Variables</button>
+      <button role="tab" data-tab="cons" aria-selected="false">Constraints</button>
+      <button role="tab" data-tab="res" aria-selected="false">Resources</button>
+      <button role="tab" data-tab="cmp" aria-selected="false">Compare runs</button>
+      <button role="tab" data-tab="scale" aria-selected="false">Scaling study</button>
+      <button role="tab" data-tab="log" aria-selected="false">Solver log</button>
+      <button role="tab" data-tab="verify" aria-selected="false">Verify a solution</button>
+    </div>
+
+    <div class="tabpanel" id="tab-summary"><div class="empty" id="summary-empty">No results yet.</div><div id="summary" hidden></div></div>
+    <div class="tabpanel" id="tab-vars" hidden></div>
+    <div class="tabpanel" id="tab-cons" hidden></div>
+    <div class="tabpanel" id="tab-res" hidden><div class="empty">No results yet.</div></div>
+    <div class="tabpanel" id="tab-cmp" hidden><div class="empty">Finish at least one run.</div></div>
+    <div class="tabpanel" id="tab-scale" hidden></div>
+    <div class="tabpanel" id="tab-log" hidden>
+      <div class="toolbar"><span class="help" id="cmdline"></span><label class="check" style="margin-left:auto"><input type="checkbox" id="follow" checked> Follow</label></div>
+      <pre class="log" id="log">(no run yet)</pre>
+    </div>
+    <div class="tabpanel" id="tab-verify" hidden>
+      <p style="margin:0">Check <b>any</b> solver's solution against the loaded model with the same independent verifier the engines use. File format: one <code>name value</code> line per variable; optionally a line <code>DUAL</code> followed by <code>name dual</code> per constraint (model's objective sense). Lines starting with <code>#</code> are ignored.</p>
+      <div class="row"><input type="file" id="check-file"><button class="btn" id="check-run" disabled>Verify</button></div>
+      <div id="check-out"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const S = { model: null, job: null, poll: null, since: 0, runs: [], current: null, tab: "summary",
+            vars: { page: 0, sort: null, dir: 1, q: "", nz: false, int: false }, cons: { page: 0, sort: null, dir: 1, q: "", bind: false },
+            progress: [] };
+
+// ---------- formatting ----------
+function num(v, p) {
+  if (v === null || v === undefined || v === "") return "–";
+  if (v === "Infinity") return "∞";
+  if (v === "-Infinity") return "−∞";
+  if (typeof v !== "number" || !isFinite(v)) return String(v);
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 1e9 || a < 1e-5) return v.toExponential(p || 4);
+  return (+v.toPrecision(p || 10)).toLocaleString("en-US", { maximumFractionDigits: 8 });
+}
+const sci = v => (v === null || v === undefined) ? "–" : (v === 0 ? "0" : Number(v).toExponential(1));
+const secs = t => t == null ? "–" : (t < 0.01 ? (t * 1000).toFixed(2) + " ms" : t < 60 ? t.toFixed(t < 1 ? 3 : 2) + " s" : (t / 60).toFixed(1) + " min");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const bytes = n => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB";
+const asNum = v => v === "Infinity" ? Infinity : v === "-Infinity" ? -Infinity : (v === null ? NaN : v);
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({ error: "bad response from server" }));
+  if (!r.ok || j.error) throw new Error(j.error || ("HTTP " + r.status));
+  return j;
+}
+
+// ---------- environment ----------
+api("/api/info").then(i => {
+  S.env = i;
+  const parts = [`solver: ${i.exe.split(/[\\/]/).pop()}`, `${i.threads} CPU threads`, i.gpu ? `GPU: ${i.gpu}` : "no GPU detected"];
+  $("env").innerHTML = parts.map(p => `<span class="pill">${esc(p)}</span>`).join("");
+  $("threads").value = Math.min(8, i.threads || 4);
+}).catch(e => { $("env").innerHTML = `<span class="pill" style="color:var(--crit)">server not reachable: ${esc(e.message)}</span>`; });
+api("/api/samples").then(s => {
+  $("sample").insertAdjacentHTML("beforeend", s.samples.map(x => `<option value="${esc(x.name)}">${esc(x.name)} (${bytes(x.size)})</option>`).join(""));
+}).catch(() => {});
+
+// ---------- model ----------
+const drop = $("drop");
+drop.addEventListener("click", () => $("file").click());
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
+$("file").addEventListener("change", e => { if (e.target.files[0]) upload(e.target.files[0]); });
+$("load-sample").addEventListener("click", async () => {
+  const name = $("sample").value;
+  if (!name) return;
+  setModelBusy("Loading " + name + " …");
+  try { setModel(await api("/api/sample", { method: "POST", body: JSON.stringify({ name }) })); }
+  catch (e) { modelError(e.message); }
+});
+async function upload(file) {
+  setModelBusy(`Uploading ${file.name} (${bytes(file.size)}) …`);
+  try { setModel(await api("/api/upload?name=" + encodeURIComponent(file.name), { method: "POST", body: file })); }
+  catch (e) { modelError(e.message); }
+}
+function setModelBusy(msg) { $("model-err").hidden = true; $("model-info").hidden = false; $("model-info").innerHTML = `<dt>${esc(msg)}</dt><dd></dd>`; $("solve").disabled = true; }
+function modelError(msg) { $("model-info").hidden = true; $("model-err").hidden = false; $("model-err").textContent = "Could not read the model: " + msg; $("solve").disabled = true; }
+function setModel(m) {
+  S.model = m;
+  const st = m.stats || {};
+  $("model-info").hidden = false;
+  $("model-info").innerHTML = [
+    ["File", m.name], ["Model name", st.name || "–"], ["Size", bytes(m.size)],
+    ["Rows", (st.rows ?? "–").toLocaleString()], ["Columns", (st.cols ?? "–").toLocaleString()], ["Nonzeros", (st.nnz ?? "–").toLocaleString()],
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+  $("solve").disabled = false;
+  $("check-run").disabled = false;
+}
+
+// ---------- solver options ----------
+const HELP = {
+  auto: "Chooses by problem type: integer variables → branch-and-cut, quadratic objective → interior point, otherwise the concurrent LP portfolio.",
+  concurrent: "Dual simplex first; primal simplex, interior point + crossover and GPU PDLP join on harder LPs. The first answer the verifier certifies wins.",
+  dual: "Dual revised simplex alone: exact vertex solution with duals and reduced costs.",
+  ipm: "Primal-dual interior point (Mehrotra). Solves LP and convex QP; no vertex (use crossover for one).",
+  crossover: "First-order PDLP to a rough solution, crossover to a basis, then simplex to full accuracy.",
+  pdlp: "First-order PDLP only (GPU when available). Fast on very large LPs; accuracy set by the tolerance.",
+  mip: "Branch-and-cut: probing, cuts (Gomory, c-MIR, cover, clique, implied bound), heuristics, parallel tree search.",
+};
+function syncEngine() {
+  const e = $("engine").value;
+  $("engine-help").textContent = HELP[e];
+  $("f-tol").hidden = e !== "pdlp";
+  $("mip-opts").hidden = !(e === "auto" || e === "mip");
+}
+$("engine").addEventListener("change", syncEngine);
+syncEngine();
+
+// ---------- solve / poll ----------
+async function startSolve() {
+  if (!S.model) return null;
+  const req = {
+    model_id: S.model.model_id, engine: $("engine").value, time_limit: +$("tl").value || 60,
+    threads: +$("threads").value || 4, gap: (+$("gap").value || 0) / 100, presolve: $("presolve").checked, pdlp_tol: +$("tol").value || 1e-6,
+  };
+  try {
+    const r = await api("/api/solve", { method: "POST", body: JSON.stringify(req) });
+    const run = { id: r.job_id, model: S.model.name, engine: $("engine").selectedOptions[0].text, state: "running", result: null, log: [], started: Date.now() };
+    S.runs.unshift(run); S.current = run; S.since = 0; S.progress = [];
+    S.vars.page = 0; S.cons.page = 0;
+    renderHistory(); setRunning(true); $("log").textContent = "";
+    showTab("summary"); renderSummary();
+    poll();
+    return run;
+  } catch (e) { setState("crit", "error", e.message); return null; }
+}
+$("solve").addEventListener("click", () => startSolve());
+$("cancel").addEventListener("click", async () => { if (S.current) await api("/api/cancel/" + S.current.id, { method: "POST" }).catch(() => {}); });
+
+function setRunning(on) { $("solve").disabled = on || !S.model; $("cancel").hidden = !on; }
+function setState(cls, chip, text) { $("state-chip").className = "chip " + cls; $("state-chip").textContent = chip; $("state-text").textContent = text; }
+
+async function poll() {
+  const run = S.current;
+  if (!run || run.state !== "running") return;
+  try {
+    const j = await api(`/api/job/${run.id}?since=${S.since}`);
+    S.since = j.next;
+    if (j.log.length) {
+      run.log.push(...j.log);
+      parseProgress(j.log, j.elapsed);
+      const pre = $("log");
+      pre.textContent += (pre.textContent ? "\n" : "") + j.log.join("\n");
+      if ($("follow").checked) pre.scrollTop = pre.scrollHeight;
+    }
+    $("cmdline").textContent = j.command;
+    run.samples = j.samples || []; run.gpu = j.gpu || [];
+    $("elapsed").textContent = secs(j.elapsed);
+    run.command = j.command;
+    if (j.state === "running") {
+      setState("run", "running", `Solving ${run.model} …  ` + lastProgressText());
+      if (S.tab === "summary") renderLive();
+      if (S.tab === "res") renderResources();
+      S.poll = setTimeout(poll, 500);
+      return;
+    }
+    run.state = j.state; run.result = j.result; run.error = j.error; run.elapsed = j.elapsed;
+    setRunning(false); renderHistory(); showRun(run);
+    if (run.onDone) run.onDone(run);
+  } catch (e) { S.poll = setTimeout(poll, 1500); }
+}
+
+// MILP progress from the log: periodic "nodes .. incumbent .. bound .." lines and "* incumbent" lines.
+function parseProgress(lines, elapsed) {
+  for (const L of lines) {
+    let m = L.match(/^\s*nodes\s+(\d+)\s+open\s+(\d+)\s+incumbent\s+(\S+)\s+bound\s+(\S+)\s+gap\s+(\S+)%\s+([\d.]+)s/);
+    if (m) { S.progress.push({ t: +m[6], inc: m[3] === "inf" ? null : +m[3], bnd: +m[4], nodes: +m[1], open: +m[2], gap: m[5] }); continue; }
+    m = L.match(/^\s*\*\s*incumbent\s+(\S+)\s+\((\w+),\s*(\d+) nodes,\s*([\d.]+)s\)/);
+    if (m) { const last = S.progress[S.progress.length - 1]; S.progress.push({ t: +m[4], inc: +m[1], bnd: last ? last.bnd : null, nodes: +m[3], src: m[2] }); continue; }
+    m = L.match(/^\s*cut round\s+(\d+):\s+(\d+) cuts, bound\s+(\S+)/);
+    if (m) S.cutRound = { round: +m[1], bound: +m[3] };
+  }
+}
+function lastProgressText() {
+  const p = S.progress[S.progress.length - 1];
+  if (!p) return S.cutRound ? `root cut round ${S.cutRound.round}, bound ${num(S.cutRound.bound)}` : "";
+  return `nodes ${p.nodes.toLocaleString()} · incumbent ${p.inc == null ? "none" : num(p.inc)} · bound ${num(p.bnd)}`;
+}
+
+// ---------- history ----------
+function renderHistory() {
+  if (!S.runs.length) return;
+  $("history").innerHTML = S.runs.map((r, k) => {
+    const st = r.result ? r.result.status : r.state;
+    return `<button data-k="${k}" class="${r === S.current ? "sel" : ""}"><span>${esc(r.model)}<br><span class="help">${esc(r.engine)}</span></span><span>${statusChip(st)}</span></button>`;
+  }).join("");
+  $("history").querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    const r = S.runs[+b.dataset.k];
+    if (S.current && S.current.state === "running" && r !== S.current) return;
+    S.current = r; renderHistory(); showRun(r);
+  }));
+}
+
+// ---------- status meaning ----------
+const STATUS = {
+  optimal: ["good", "Verified optimal", "The independent verifier checked the answer on the original model: constraints and bounds satisfied, and optimality certified (duality gap, or the MILP gap tolerance)."],
+  near_optimal: ["warn", "Near-optimal", "The verifier's residuals are small (≤ 1e-4) but above the optimality tolerance. Usable, not certified to full accuracy."],
+  inaccurate: ["warn", "Inaccurate", "The engine finished, but the verifier measures residuals above 1e-4 on the original model. Not certified."],
+  infeasible: ["crit", "Infeasible", "No point satisfies all constraints and bounds. The engine proved it (a dual ray, or an exhausted search)."],
+  unbounded: ["crit", "Unbounded", "The objective can improve without limit; the engine found an unbounded ray."],
+  unbounded_or_infeasible: ["crit", "Unbounded or infeasible", "No finite optimum exists; the engine could not tell which of the two cases applies."],
+  time_limit: ["warn", "Time limit reached", "Stopped at the time limit. For MILP the best solution found and the proven bound are shown."],
+  node_limit: ["warn", "Node limit reached", "Stopped at the node limit; the best solution and proven bound are shown."],
+  iteration_limit: ["warn", "Iteration limit reached", "Stopped at the iteration limit before convergence."],
+};
+function statusChip(st) {
+  if (st === "running") return `<span class="chip run">running</span>`;
+  if (st === "cancelled") return `<span class="chip idle">cancelled</span>`;
+  if (st === "error") return `<span class="chip crit">error</span>`;
+  const s = STATUS[st] || ["warn", st];
+  return `<span class="chip ${s[0]}">${esc(st ? st.replace(/_/g, " ") : "–")}</span>`;
+}
+
+// ---------- show a finished run ----------
+function showRun(run) {
+  $("log").textContent = run.log.join("\n");
+  $("cmdline").textContent = run.command || "";
+  $("elapsed").textContent = run.elapsed != null ? secs(run.elapsed) : "";
+  if (run.state === "cancelled") setState("idle", "cancelled", `${run.model}: run cancelled.`);
+  else if (run.state === "error") setState("crit", "error", `${run.model}: ${run.error || "the solver failed"}`);
+  else if (run.result) { const s = STATUS[run.result.status] || ["warn", run.result.status]; setState(s[0], run.result.status.replace(/_/g, " "), `${run.model}: ${s[1]}`); }
+  S.progress = []; S.cutRound = null; parseProgress(run.log, 0);
+  S.vars.page = 0; S.cons.page = 0;
+  renderSummary(); renderVars(); renderCons();
+  if (S.tab === "res") renderResources();
+}
+
+function kpi(k, v, d) { return `<div class="kpi"><span class="k">${k}</span><span class="v">${v}</span>${d ? `<span class="d">${d}</span>` : ""}</div>`; }
+
+function renderLive() {
+  $("summary-empty").hidden = true; $("summary").hidden = false;
+  const run = S.current;
+  $("summary").innerHTML = `<div class="banner warn"><span class="h">Solving…</span><p>${esc(run.model)} with ${esc(run.engine)}. ${esc(lastProgressText())}</p></div>` + chartHtml();
+  drawChart();
+}
+
+function renderSummary() {
+  const run = S.current;
+  if (!run) return;
+  if (run.state === "running") return renderLive();
+  $("summary-empty").hidden = true; $("summary").hidden = false;
+  if (!run.result) {
+    $("summary").innerHTML = `<div class="banner ${run.state === "cancelled" ? "warn" : "crit"}"><span class="h">${run.state === "cancelled" ? "Cancelled" : "The run failed"}</span><p>${esc(run.error || "See the solver log.")}</p></div>`;
+    return;
+  }
+  const R = run.result, P = R.problem, st = STATUS[R.status] || ["warn", R.status, ""];
+  const mip = R.mip;
+  const tolOK = v => v === null || v === undefined ? "" : (v <= 1e-6 ? `<span class="pass">✓ ≤ 1e-6</span>` : v <= 1e-4 ? `<span style="color:var(--warn)">≤ 1e-4</span>` : `<span class="fail">✗ &gt; 1e-4</span>`);
+  let h = `<div class="banner ${st[0]}"><span class="h">${esc(st[1])}</span><p>${esc(st[2])}</p></div>`;
+  h += `<div class="kpis">` +
+    kpi("Objective", R.has_solution ? num(R.objective, 12) : "–", `${P.sense === "max" ? "maximize" : "minimize"} · ${esc(P.kind)}`) +
+    kpi("Solve time", secs(R.times.solve), `read ${secs(R.times.read)} · total ${secs(R.times.total)}`) +
+    kpi("Engine", esc(R.engine.split(" (")[0].replace(" won the concurrent race", "")), esc(R.mode)) +
+    (mip ? kpi("Gap", R.has_solution && mip.gap != null ? (mip.gap * 100).toFixed(4) + " %" : "–", `bound ${num(mip.bound, 10)}`)
+         : kpi("Iterations", (R.iterations || 0).toLocaleString(), "pivots / IPM iterations")) +
+    `</div>`;
+  h += `<div class="grid2">`;
+  h += `<div class="card"><h3>Independent verification</h3><table><thead><tr><th class="l">Check</th><th>Residual</th><th class="l">Result</th></tr></thead><tbody>` +
+    `<tr><td class="l">Primal feasibility (rows + bounds)</td><td>${sci(R.residuals.primal)}</td><td class="l">${tolOK(R.residuals.primal)}</td></tr>` +
+    (mip ? `<tr><td class="l">Integrality (max violation)</td><td>${sci(mip.max_integrality_violation)}</td><td class="l">${tolOK(mip.max_integrality_violation)}</td></tr>`
+         : `<tr><td class="l">Dual feasibility</td><td>${sci(R.residuals.dual)}</td><td class="l">${tolOK(R.residuals.dual)}</td></tr>` +
+           `<tr><td class="l">Duality gap</td><td>${sci(R.residuals.gap)}</td><td class="l">${tolOK(R.residuals.gap)}</td></tr>`) +
+    `</tbody></table><span class="help">Relative residuals measured on the original, unscaled, unpresolved model by a module that shares no code with the engines.</span></div>`;
+  h += `<div class="card"><h3>Problem</h3><dl class="kv">` +
+    [["Name", P.name || "–"], ["Type", P.kind], ["Rows", P.rows.toLocaleString()], ["Columns", P.cols.toLocaleString()], ["Nonzeros", P.nonzeros.toLocaleString()],
+     ["Row types", `≤ ${P.row_types.L} · ≥ ${P.row_types.G} · = ${P.row_types.E} · ranged ${P.row_types.R}`],
+     ["Integer columns", `${P.integer_cols} (binary ${P.binary_cols})`], ["Quadratic terms", P.quadratic_nonzeros]]
+      .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("") + `</dl></div>`;
+  if (mip) {
+    h += `<div class="card"><h3>Branch-and-cut</h3><dl class="kv">` +
+      [["Best solution", R.has_solution ? num(R.objective, 12) : "none found"], ["Proven bound", num(mip.bound, 12)],
+       ["Gap", R.has_solution && mip.gap != null ? (mip.gap * 100).toFixed(4) + " %" : "–"], ["Nodes", mip.nodes.toLocaleString()],
+       ["Root LP bound", num(mip.root_lp, 12)], ["After root cuts", `${num(mip.root_after_cuts, 12)} (${mip.cuts} cuts)`], ["Threads", mip.threads]]
+        .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("") + `</dl></div>`;
+  }
+  h += `<div class="card"><h3>Downloads</h3><div class="downloads">` +
+    (R.has_solution ? `<a class="btn small" href="/api/download/${run.id}/sol">Solution (.sol)</a><a class="btn small" href="/api/download/${run.id}/variables.csv">Variables (CSV)</a><a class="btn small" href="/api/download/${run.id}/constraints.csv">Constraints (CSV)</a>` : "") +
+    `<a class="btn small" href="/api/download/${run.id}/json">Full result (JSON)</a><a class="btn small" href="/api/download/${run.id}/log">Solver log</a></div>` +
+    `<span class="help">The .sol file uses the verifier's input format, so it can be re-checked on the Verify tab or with <code>--check</code>.</span>` +
+    `<span class="cmd">${esc(run.command || "")}</span></div>`;
+  h += `</div>`;
+  if (mip && S.progress.length) h += chartHtml();
+  $("summary").innerHTML = h;
+  if (mip && S.progress.length) drawChart();
+}
+
+// ---------- MILP chart ----------
+function chartHtml() {
+  if (!S.progress.length) return "";
+  return `<div class="card chart"><h3>Search progress</h3><div class="legend"><span><i style="background:var(--inc)"></i>best solution</span><span><i style="background:var(--bnd)"></i>proven bound</span></div><svg id="chart" role="img" aria-label="Incumbent and bound over time"></svg></div>`;
+}
+function drawChart() {
+  const svg = $("chart");
+  if (!svg) return;
+  const pts = S.progress.filter(p => isFinite(p.t));
+  const W = 720, H = 220, m = { l: 70, r: 14, t: 10, b: 30 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.width = "100%"; svg.style.height = "auto";
+  const vals = [];
+  pts.forEach(p => { if (p.inc != null && isFinite(p.inc)) vals.push(p.inc); if (p.bnd != null && isFinite(p.bnd)) vals.push(p.bnd); });
+  if (!vals.length) { svg.innerHTML = ""; return; }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const tmax = Math.max(1e-3, ...pts.map(p => p.t));
+  const sx = t => m.l + t / tmax * (W - m.l - m.r), sy = v => H - m.b - (v - lo) / (hi - lo) * (H - m.t - m.b);
+  let s = "";
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4, y = sy(v);
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)"/><text x="${m.l - 6}" y="${y + 4}" font-size="11" text-anchor="end" fill="var(--muted)">${num(v, 6)}</text>`;
+  }
+  for (let k = 0; k <= 4; k++) { const t = tmax * k / 4; s += `<text x="${sx(t)}" y="${H - 10}" font-size="11" text-anchor="middle" fill="var(--muted)">${t.toFixed(1)}s</text>`; }
+  const step = key => { let d = "", prev = null; for (const p of pts) { if (p[key] == null || !isFinite(p[key])) continue; const x = sx(p.t), y = sy(p[key]); d += prev == null ? `M${x},${y}` : `H${x}V${y}`; prev = y; } return d; };
+  s += `<path d="${step("bnd")}" fill="none" stroke="var(--bnd)" stroke-width="2"/><path d="${step("inc")}" fill="none" stroke="var(--inc)" stroke-width="2"/>`;
+  svg.innerHTML = s;
+}
+
+// ---------- tables ----------
+const PAGE = 100;
+function tableView(kind) {
+  const run = S.current, st = kind === "vars" ? S.vars : S.cons;
+  const el = $(kind === "vars" ? "tab-vars" : "tab-cons");
+  if (!run || !run.result) { el.innerHTML = `<div class="empty">No results yet.</div>`; return; }
+  const R = run.result;
+  const all = kind === "vars" ? R.variables : R.constraints;
+  const total = kind === "vars" ? R.variables_total : R.constraints_total;
+  const trunc = kind === "vars" ? R.variables_truncated : R.constraints_truncated;
+  const cols = kind === "vars"
+    ? [["name", "Variable", "l"], ["value", "Value"], ["lower", "Lower"], ["upper", "Upper"], ["cost", "Cost"], ["reduced_cost", "Reduced cost"], ["integer", "Type", "l"], ["position", "Position", "l"]]
+    : [["name", "Constraint", "l"], ["type", "Type", "l"], ["activity", "Activity"], ["lower", "Lower"], ["upper", "Upper"], ["slack", "Slack"], ["dual", "Dual"], ["position", "Status", "l"]];
+  const q = st.q.trim().toLowerCase();
+  let rows = all.filter(r => !q || r.name.toLowerCase().includes(q));
+  if (kind === "vars" && st.nz) rows = rows.filter(r => typeof r.value === "number" && Math.abs(r.value) > 1e-9);
+  if (kind === "vars" && st.int) rows = rows.filter(r => r.integer);
+  if (kind === "cons" && st.bind) rows = rows.filter(r => r.position && r.position !== "slack");
+  if (st.sort) {
+    const k = st.sort, d = st.dir;
+    rows = rows.slice().sort((a, b) => {
+      const x = a[k], y = b[k];
+      if (typeof x === "string" && typeof y === "string" && !/Infinity/.test(x + y)) return d * x.localeCompare(y);
+      const nx = asNum(x), ny = asNum(y);
+      return d * ((isNaN(nx) ? -Infinity : nx) - (isNaN(ny) ? -Infinity : ny));
+    });
+  }
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  st.page = Math.min(st.page, pages - 1);
+  const view = rows.slice(st.page * PAGE, st.page * PAGE + PAGE);
+  const cell = (r, [k, , a]) => {
+    const v = r[k];
+    if (k === "name") return `<td class="name">${esc(v)}</td>`;
+    if (k === "integer") return `<td class="l">${v ? "integer" : "continuous"}</td>`;
+    if (a === "l") return `<td class="l">${esc(v ?? "")}</td>`;
+    return `<td>${num(v)}</td>`;
+  };
+  const filters = kind === "vars"
+    ? `<label class="check"><input type="checkbox" data-f="nz" ${st.nz ? "checked" : ""}> nonzero only</label><label class="check"><input type="checkbox" data-f="int" ${st.int ? "checked" : ""}> integer only</label>`
+    : `<label class="check"><input type="checkbox" data-f="bind" ${st.bind ? "checked" : ""}> binding only</label>`;
+  el.innerHTML =
+    (trunc ? `<div class="banner warn"><p>Showing the first ${all.length.toLocaleString()} of ${total.toLocaleString()}. The CSV download holds all of them.</p></div>` : "") +
+    (kind === "vars" && R.mip ? `<p class="help" style="margin:0">MILP: reduced costs are not reported (no duals at an integer optimum).</p>` : "") +
+    (kind === "cons" && R.mip ? `<p class="help" style="margin:0">MILP: duals are not reported (no duals at an integer optimum).</p>` : "") +
+    `<div class="toolbar"><input type="search" placeholder="Filter by name" value="${esc(st.q)}" data-f="q" aria-label="Filter by name">${filters}` +
+    `<div class="pager"><span>${rows.length.toLocaleString()} rows</span><button class="btn small" data-p="-1" ${st.page ? "" : "disabled"}>‹</button><span>page ${st.page + 1} / ${pages}</span><button class="btn small" data-p="1" ${st.page < pages - 1 ? "" : "disabled"}>›</button></div></div>` +
+    `<div class="tablewrap"><table><thead><tr>${cols.map(([k, t, a]) => `<th class="${a || ""}" data-k="${k}">${t}${st.sort === k ? (st.dir > 0 ? " ▲" : " ▼") : ""}</th>`).join("")}</tr></thead>` +
+    `<tbody>${view.map(r => "<tr>" + cols.map(c => cell(r, c)).join("") + "</tr>").join("")}</tbody></table></div>`;
+  el.querySelector('[data-f="q"]').addEventListener("input", e => { st.q = e.target.value; st.page = 0; tableView(kind); el.querySelector('[data-f="q"]').focus(); const i = el.querySelector('[data-f="q"]'); i.setSelectionRange(i.value.length, i.value.length); });
+  el.querySelectorAll('input[type=checkbox][data-f]').forEach(c => c.addEventListener("change", () => { st[c.dataset.f] = c.checked; st.page = 0; tableView(kind); }));
+  el.querySelectorAll("[data-p]").forEach(b => b.addEventListener("click", () => { st.page += +b.dataset.p; tableView(kind); }));
+  el.querySelectorAll("th[data-k]").forEach(th => th.addEventListener("click", () => {
+    if (st.sort === th.dataset.k) st.dir = -st.dir; else { st.sort = th.dataset.k; st.dir = 1; }
+    tableView(kind);
+  }));
+}
+const renderVars = () => tableView("vars"), renderCons = () => tableView("cons");
+
+// ---------- verify ----------
+$("check-run").addEventListener("click", async () => {
+  const f = $("check-file").files[0];
+  if (!S.model) { $("check-out").innerHTML = `<p class="err">Load a model first.</p>`; return; }
+  if (!f) { $("check-out").innerHTML = `<p class="err">Choose a solution file.</p>`; return; }
+  $("check-out").innerHTML = `<p class="help">Verifying…</p>`;
+  try {
+    const r = await api("/api/check/" + S.model.model_id, { method: "POST", body: f });
+    const row = (k, v, dual) => `<tr><td class="l">${k}</td><td>${v == null ? (dual ? "no duals given" : "–") : sci(v)}</td><td class="l">${v == null ? "" : (v <= 1e-6 ? '<span class="pass">✓ ≤ 1e-6</span>' : '<span class="fail">✗ &gt; 1e-6</span>')}</td></tr>`;
+    $("check-out").innerHTML = `<div class="card"><h3>Verifier result for ${esc(f.name)} on ${esc(S.model.name)}</h3>` +
+      `<dl class="kv"><dt>Objective of this solution</dt><dd>${num(r.objective, 12)}</dd></dl>` +
+      `<table><thead><tr><th class="l">Check</th><th>Residual</th><th class="l">Result</th></tr></thead><tbody>` +
+      row("Primal feasibility", r.eps_P) + row("Integrality (max violation)", r.int_violation) + row("Dual feasibility", r.eps_D, true) + row("Duality gap", r.eps_G, true) +
+      `</tbody></table></div>`;
+  } catch (e) { $("check-out").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+});
+
+// ---------- resources, comparison, scaling ----------
+const MB = b => (b == null || !isFinite(b)) ? "–" : (b / 1048576).toFixed(b < 10485760 ? 2 : 1) + " MB";
+const cnt = n => n == null ? "–" : Math.round(n).toLocaleString();
+
+// Phase timings parsed from the verbose solver log.
+function phases(log) {
+  const out = [];
+  for (const L of log) {
+    let m = L.match(/presolve: .* in \d+ passes, \d+ steps, ([\d.]+)s/);
+    if (m) out.push(["presolve", +m[1]]);
+    m = L.match(/simplex time: (.*)\(LU fill/);
+    if (m) { const re = /([a-z]+) ([\d.]+)/g; let g; while ((g = re.exec(m[1]))) out.push(["simplex: " + g[1], +g[2]]); }
+    m = L.match(/heuristic (\S+)\s+([\d.]+)s/);
+    if (m) out.push(["MILP heuristic: " + m[1], +m[2]]);
+    m = L.match(/ipm: .*analyze ([\d.]+)s/);
+    if (m) out.push(["IPM: ordering + analysis", +m[1]]);
+  }
+  const agg = new Map();
+  for (const [k, v] of out) agg.set(k, (agg.get(k) || 0) + v);
+  return [...agg.entries()].filter(e => e[1] > 0).sort((a, b) => b[1] - a[1]);
+}
+// Structural sizes reported in the log.
+function structure(log) {
+  const s = {};
+  for (const L of log) {
+    let m = L.match(/presolve: (\d+) x (\d+) -> (\d+) x (\d+)/);
+    if (m) s.presolve = `${cnt(+m[1])} × ${cnt(+m[2])} → ${cnt(+m[3])} × ${cnt(+m[4])}`;
+    m = L.match(/LU fill (\d+)/); if (m) s.lu = Math.max(s.lu || 0, +m[1]);
+    m = L.match(/nnz\(L\) (\d+)/); if (m) s.ldl = Math.max(s.ldl || 0, +m[1]);
+    m = L.match(/probing: (\d+) binaries probed, (\d+) fixed.*?(\d+) implications, (\d+) cliques/);
+    if (m) s.probing = `${m[1]} probed, ${m[2]} fixed, ${cnt(+m[3])} implications, ${cnt(+m[4])} cliques`;
+  }
+  return s;
+}
+
+// Line chart as SVG markup. series: [{name, color, pts: [[x, y]], dash?}]
+function chartSVG(series, o) {
+  o = o || {};
+  const W = 640, H = 210, m = { l: 62, r: 14, t: 12, b: 32 };
+  const all = series.flatMap(s => s.pts).filter(p => isFinite(p[0]) && isFinite(p[1]) && (!o.logx || p[0] > 0) && (!o.logy || p[1] > 0));
+  if (!all.length) return `<p class="help">No samples for this chart (the run was too short, or this resource was not used).</p>`;
+  const tx = v => o.logx ? Math.log10(v) : v, ty = v => o.logy ? Math.log10(v) : v;
+  let x0 = Math.min(...all.map(p => tx(p[0]))), x1 = Math.max(...all.map(p => tx(p[0])));
+  let y0 = o.y0 !== undefined ? o.y0 : Math.min(...all.map(p => ty(p[1]))), y1 = Math.max(...all.map(p => ty(p[1])));
+  if (o.ymax !== undefined) y1 = Math.max(y1, o.ymax);
+  if (x1 === x0) { x1 += 0.5; x0 -= 0.5; }
+  if (y1 === y0) { y1 += o.logy ? 0.5 : 1; if (o.y0 === undefined) y0 -= o.logy ? 0.5 : 1; }
+  y1 += (y1 - y0) * 0.08;
+  if (o.y0 === undefined) y0 -= (y1 - y0) * 0.04;
+  const sx = v => m.l + (tx(v) - x0) / (x1 - x0) * (W - m.l - m.r);
+  const sy = v => H - m.b - (ty(v) - y0) / (y1 - y0) * (H - m.t - m.b);
+  const fy = o.fy || (v => num(v, 4)), fx = o.fx || (v => num(v, 4));
+  let s = "";
+  for (let k = 0; k <= 4; k++) {
+    const yy = y0 + (y1 - y0) * k / 4, v = o.logy ? Math.pow(10, yy) : yy, y = H - m.b - k / 4 * (H - m.t - m.b);
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)"/><text x="${m.l - 6}" y="${y + 4}" font-size="11" text-anchor="end" fill="var(--muted)">${esc(fy(v))}</text>`;
+  }
+  for (let k = 0; k <= 4; k++) {
+    const xx = x0 + (x1 - x0) * k / 4, v = o.logx ? Math.pow(10, xx) : xx, x = m.l + k / 4 * (W - m.l - m.r);
+    s += `<text x="${x}" y="${H - 12}" font-size="11" text-anchor="middle" fill="var(--muted)">${esc(fx(v))}</text>`;
+  }
+  if (o.xlabel) s += `<text x="${W - m.r}" y="${H - 1}" font-size="11" text-anchor="end" fill="var(--ink2)">${esc(o.xlabel)}</text>`;
+  if (o.ylabel) s += `<text x="${m.l}" y="${m.t - 2}" font-size="11" fill="var(--ink2)">${esc(o.ylabel)}</text>`;
+  for (const se of series) {
+    const p = se.pts.filter(q => isFinite(q[0]) && isFinite(q[1]) && (!o.logx || q[0] > 0) && (!o.logy || q[1] > 0));
+    if (!p.length) continue;
+    s += `<polyline fill="none" stroke="${se.color}" stroke-width="2" ${se.dash ? 'stroke-dasharray="5 4"' : ""} points="${p.map(q => sx(q[0]) + "," + sy(q[1])).join(" ")}"/>`;
+    if (o.markers && !se.dash) for (const q of p) s += `<circle cx="${sx(q[0])}" cy="${sy(q[1])}" r="4" fill="${se.color}" stroke="var(--panel)" stroke-width="2"><title>${esc(se.name)}: ${esc(fx(q[0]))}, ${esc(fy(q[1]))}</title></circle>`;
+  }
+  const legend = series.length > 1 || o.legend ? `<div class="legend">${series.map(se => `<span><i style="background:${se.color}"></i>${esc(se.name)}</span>`).join("")}</div>` : "";
+  return `${legend}<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="${esc(o.title || "chart")}">${s}</svg>`;
+}
+
+function runMetrics(run) {
+  const R = run.result, res = (R && R.resources) || {}, smp = run.samples || [], gpu = run.gpu || [];
+  const wall = R ? R.times.total : run.elapsed;
+  const cpu = res.cpu_user_seconds != null ? res.cpu_user_seconds + res.cpu_kernel_seconds : (smp.length ? smp[smp.length - 1].cpu : null);
+  const base = gpu.length ? gpu[0].mem_mb : null;
+  return {
+    wall, cpu, avgCores: cpu != null && wall > 0 ? cpu / wall : null,
+    peakCores: smp.length ? Math.max(...smp.map(s => s.cores || 0)) : null,
+    peakWS: res.peak_working_set_bytes != null ? res.peak_working_set_bytes : (smp.length ? Math.max(...smp.map(s => s.ws)) : null),
+    peakPriv: res.peak_private_bytes || (smp.length ? Math.max(...smp.map(s => s.priv)) : null),
+    heapPeak: res.heap_peak_live_bytes, allocs: res.heap_allocations, allocBytes: res.heap_bytes_allocated,
+    gpuUtil: gpu.length ? Math.max(...gpu.map(g => g.util)) : null,
+    gpuMem: gpu.length ? Math.max(...gpu.map(g => g.mem_mb)) - base : null,
+    gpuEngine: !!(R && /gpu/i.test(R.engine)),
+  };
+}
+
+function renderResources() {
+  const el = $("tab-res"), run = S.current;
+  if (!run) { el.innerHTML = `<div class="empty">No results yet.</div>`; return; }
+  const R = run.result, M = runMetrics(run), smp = run.samples || [], gpu = run.gpu || [];
+  const threads = (S.env && S.env.threads) || null;
+  let h = "";
+  h += `<div class="kpis">` +
+    kpi("Wall time", secs(M.wall), R ? `solve ${secs(R.times.solve)} · read ${secs(R.times.read)}` : "running") +
+    kpi("CPU time", secs(M.cpu), "user + kernel, all threads") +
+    kpi("Average cores busy", M.avgCores == null ? "–" : M.avgCores.toFixed(2), threads ? `of ${threads} hardware threads · peak ${M.peakCores == null ? "–" : M.peakCores.toFixed(1)}` : "") +
+    kpi("Peak memory (OS)", MB(M.peakWS), `working set · private ${MB(M.peakPriv)}`) +
+    kpi("Peak live heap", MB(M.heapPeak), "largest heap in use at once (solver's own count)") +
+    kpi("Heap allocations", cnt(M.allocs), `${MB(M.allocBytes)} requested in total` + (M.allocs && M.wall ? ` · ${cnt(M.allocs / M.wall)}/s` : "")) +
+    kpi("GPU", M.gpuUtil == null ? (S.env && S.env.gpu ? "idle" : "none") : M.gpuUtil + " % peak", M.gpuUtil == null ? "" : `+${M.gpuMem.toFixed(0)} MB device memory · engine used GPU: ${M.gpuEngine ? "yes" : "no"}`) +
+    `</div>`;
+  const t0 = smp.length ? smp[0].t : 0;
+  h += `<div class="grid2">`;
+  h += `<div class="card"><h3>CPU cores busy</h3>${chartSVG([{ name: "cores", color: "var(--inc)", pts: smp.filter(s => s.cores != null).map(s => [s.t, s.cores]) }], { y0: 0, xlabel: "seconds", fy: v => v.toFixed(1), fx: v => v.toFixed(1), title: "CPU cores busy over time" })}</div>`;
+  h += `<div class="card"><h3>Memory</h3>${chartSVG([
+    { name: "working set", color: "var(--inc)", pts: smp.map(s => [s.t, s.ws / 1048576]) },
+    { name: "private", color: "var(--bnd)", pts: smp.map(s => [s.t, s.priv / 1048576]) }], { y0: 0, xlabel: "seconds", ylabel: "MB", fy: v => v.toFixed(0), fx: v => v.toFixed(1), title: "Memory over time" })}</div>`;
+  if (gpu.length) {
+    h += `<div class="card"><h3>GPU utilization</h3>${chartSVG([{ name: "utilization %", color: "var(--good)", pts: gpu.map(g => [g.t, g.util]) }], { y0: 0, ymax: 100, xlabel: "seconds", fy: v => v.toFixed(0) + "%", fx: v => v.toFixed(1), title: "GPU utilization" })}</div>`;
+    h += `<div class="card"><h3>GPU memory</h3>${chartSVG([{ name: "device memory", color: "var(--warn)", pts: gpu.map(g => [g.t, g.mem_mb]) }], { xlabel: "seconds", ylabel: "MB", fy: v => v.toFixed(0), fx: v => v.toFixed(1), title: "GPU memory" })}</div>`;
+  }
+  h += `</div>`;
+  const ph = phases(run.log || []), st = structure(run.log || []);
+  if (ph.length) {
+    const mx = ph[0][1];
+    h += `<div class="card"><h3>Where the time went (from the solver log)</h3><table><tbody>` +
+      ph.slice(0, 16).map(([k, v]) => `<tr><td class="l">${esc(k)}</td><td style="width:55%"><div style="height:10px;border-radius:0 3px 3px 0;background:var(--accent);width:${(v / mx * 100).toFixed(1)}%"></div></td><td>${secs(v)}</td></tr>`).join("") +
+      `</tbody></table><span class="help">Engine-internal timers. Simplex rows: factor = LU factorization, ftran/btran = triangular solves, dse = steepest-edge weights, row = pivot row, ratio = ratio test, price = choice of leaving row.</span></div>`;
+  }
+  const sk = [["Presolve (rows × cols)", st.presolve], ["LU fill (nonzeros in L + U)", st.lu && cnt(st.lu)], ["IPM factor nnz(L)", st.ldl && cnt(st.ldl)], ["MILP probing", st.probing]].filter(x => x[1]);
+  if (sk.length) h += `<div class="card"><h3>Structural sizes (space drivers)</h3><dl class="kv">${sk.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>`;
+  h += `<p class="help" style="margin:0">How this is measured: CPU time and peak memory come from the operating system for the solver process; the heap figures come from the solver's own counting allocator (every C++ allocation, exact); the time series are sampled every 0.2 s (CPU, memory) and 0.25 s (GPU, whole device, via nvidia-smi), so very short runs show few points.</p>`;
+  el.innerHTML = h;
+}
+
+// ---------- compare ----------
+S.cmpSel = new Set();
+function renderCompare() {
+  const el = $("tab-cmp");
+  const done = S.runs.filter(r => r.result);
+  if (!done.length) { el.innerHTML = `<div class="empty">Finish at least one run.</div>`; return; }
+  done.forEach(r => { if (!S.cmpInit) S.cmpSel.add(r.id); });
+  S.cmpInit = true;
+  const sel = done.filter(r => S.cmpSel.has(r.id));
+  let h = `<div class="toolbar">${done.map(r => `<label class="check"><input type="checkbox" data-id="${r.id}" ${S.cmpSel.has(r.id) ? "checked" : ""}>${esc(r.model)} · ${esc(r.engine)}</label>`).join("")}</div>`;
+  if (!sel.length) { el.innerHTML = h + `<div class="empty">Select runs to compare.</div>`; bindCmp(el); return; }
+  const rows = sel.map(r => ({ r, M: runMetrics(r) }));
+  h += `<div class="tablewrap"><table><thead><tr><th class="l">Run</th><th class="l">Status</th><th>Objective</th><th>Solve time</th><th>CPU time</th><th>Avg cores</th><th>Peak memory</th><th>Peak heap</th><th>Allocations</th><th>GPU peak</th><th>Iterations / nodes</th></tr></thead><tbody>` +
+    rows.map(({ r, M }) => `<tr><td class="l">${esc(r.model)}<br><span class="help">${esc(r.engine)}</span></td><td class="l">${statusChip(r.result.status)}</td><td>${num(r.result.objective, 10)}</td><td>${secs(r.result.times.solve)}</td><td>${secs(M.cpu)}</td><td>${M.avgCores == null ? "–" : M.avgCores.toFixed(2)}</td><td>${MB(M.peakWS)}</td><td>${MB(M.heapPeak)}</td><td>${cnt(M.allocs)}</td><td>${M.gpuUtil == null ? "–" : M.gpuUtil + "%"}</td><td>${r.result.mip ? cnt(r.result.mip.nodes) + " nodes" : cnt(r.result.iterations)}</td></tr>`).join("") +
+    `</tbody></table></div>`;
+  const bars = (title, vals, fmt) => {
+    const mx = Math.max(...vals.map(v => v[1] || 0)) || 1;
+    return `<div class="card"><h3>${title}</h3><table><tbody>${vals.map(([k, v]) => `<tr><td class="l" style="max-width:220px;white-space:normal">${esc(k)}</td><td style="width:55%"><div style="height:10px;border-radius:0 3px 3px 0;background:var(--accent);width:${((v || 0) / mx * 100).toFixed(1)}%"></div></td><td>${fmt(v)}</td></tr>`).join("")}</tbody></table></div>`;
+  };
+  const label = x => `${x.r.model} · ${x.r.engine}`;
+  h += `<div class="grid2">` + bars("Solve time", rows.map(x => [label(x), x.r.result.times.solve]), secs) +
+       bars("Peak memory (OS)", rows.map(x => [label(x), x.M.peakWS]), MB) +
+       bars("CPU time", rows.map(x => [label(x), x.M.cpu]), secs) +
+       bars("Heap allocations", rows.map(x => [label(x), x.M.allocs]), cnt) + `</div>`;
+  el.innerHTML = h;
+  bindCmp(el);
+}
+function bindCmp(el) {
+  el.querySelectorAll("input[data-id]").forEach(c => c.addEventListener("change", () => { if (c.checked) S.cmpSel.add(c.dataset.id); else S.cmpSel.delete(c.dataset.id); renderCompare(); }));
+}
+
+// ---------- scaling study ----------
+S.scale = { family: "transport", sizes: "50,100,200,400,800", points: [], running: false, msg: "" };
+const FAMILIES = {
+  transport: ["Transportation LP (size S: S suppliers × S customers, S² variables, 2S² nonzeros)", "concurrent"],
+  refinery_lp: ["Refinery planning LP (size k: k crudes × k periods)", "concurrent"],
+  refinery_milp: ["Refinery planning MILP (size k: k crudes × k periods, binaries)", "mip"],
+  refinery_qp: ["Refinery planning convex QP (size k: k crudes × k periods)", "ipm"],
+};
+function fit(points, key) {
+  const p = points.filter(q => q.nnz > 0 && q[key] > 0 && (q.status === "optimal" || q.status === "near_optimal"));
+  if (p.length < 2) return null;
+  const xs = p.map(q => Math.log10(q.nnz)), ys = p.map(q => Math.log10(q[key]));
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; }
+  if (sxx === 0) return null;
+  const k = sxy / sxx, c = my - k * mx, r2 = syy > 0 ? (sxy * sxy) / (sxx * syy) : 1;
+  return { k, c, r2, x0: Math.min(...p.map(q => q.nnz)), x1: Math.max(...p.map(q => q.nnz)) };
+}
+function fitLine(f) { return f ? [[f.x0, Math.pow(10, f.c + f.k * Math.log10(f.x0))], [f.x1, Math.pow(10, f.c + f.k * Math.log10(f.x1))]] : []; }
+function renderScaling() {
+  const el = $("tab-scale"), sc = S.scale;
+  const ft = fit(sc.points, "time"), fm = fit(sc.points, "mem"), fh = fit(sc.points, "heap");
+  let h = `<p style="margin:0">Empirical complexity: solve one model family at growing sizes with the engine chosen on the left, and fit <b>time ∝ nnz<sup>k</sup></b> and <b>memory ∝ nnz<sup>k</sup></b> on log–log axes. k ≈ 1 means linear growth in the problem size.</p>`;
+  h += `<div class="toolbar"><label class="f" style="flex:2">Model family<select id="sc-family">${Object.entries(FAMILIES).map(([k, v]) => `<option value="${k}" ${k === sc.family ? "selected" : ""}>${esc(v[0])}</option>`).join("")}</select></label>` +
+       `<label class="f">Sizes<input type="text" id="sc-sizes" value="${esc(sc.sizes)}"></label>` +
+       `<button class="btn primary" id="sc-run" style="flex:0 0 auto;align-self:flex-end" ${sc.running || !S.env ? "disabled" : ""}>Run series</button>` +
+       `<button class="btn danger" id="sc-stop" style="align-self:flex-end" ${sc.running ? "" : "hidden"}>Stop after this size</button></div>`;
+  h += `<p class="help" style="margin:0">Uses the engine, time limit, threads and gap set on the left (suggested engine for this family: ${esc(FAMILIES[sc.family][1])}). Sizes run one after another; each run also appears under "Runs this session". ${esc(sc.msg)}</p>`;
+  if (sc.points.length) {
+    const kfmt = f => f ? `k = ${f.k.toFixed(2)} (R² ${f.r2.toFixed(3)})` : "needs ≥ 2 sizes";
+    h += `<div class="kpis">` + kpi("Time exponent", ft ? ft.k.toFixed(2) : "–", "time ∝ nnz^k · " + kfmt(ft)) + kpi("Memory exponent (OS)", fm ? fm.k.toFixed(2) : "–", "peak working set ∝ nnz^k · " + kfmt(fm)) + kpi("Heap exponent", fh ? fh.k.toFixed(2) : "–", "peak live heap ∝ nnz^k · " + kfmt(fh)) + `</div>`;
+    const P = sc.points;
+    h += `<div class="grid2"><div class="card"><h3>Solve time vs nonzeros</h3>${chartSVG([{ name: "measured", color: "var(--inc)", pts: P.map(q => [q.nnz, q.time]) }, { name: "fit", color: "var(--bnd)", pts: fitLine(ft), dash: true }], { logx: true, logy: true, markers: true, legend: true, xlabel: "nonzeros", ylabel: "seconds", fx: v => cnt(v), fy: v => secs(v), title: "time vs size" })}</div>` +
+         `<div class="card"><h3>Memory vs nonzeros</h3>${chartSVG([{ name: "peak working set", color: "var(--inc)", pts: P.map(q => [q.nnz, q.mem / 1048576]) }, { name: "peak live heap", color: "var(--good)", pts: P.map(q => [q.nnz, q.heap / 1048576]) }, { name: "fit (working set)", color: "var(--bnd)", pts: fitLine(fm).map(q => [q[0], q[1] / 1048576]), dash: true }], { logx: true, logy: true, markers: true, xlabel: "nonzeros", ylabel: "MB", fx: v => cnt(v), fy: v => v.toFixed(v < 10 ? 2 : 0), title: "memory vs size" })}</div></div>`;
+    h += `<div class="tablewrap"><table><thead><tr><th>Size</th><th>Rows</th><th>Columns</th><th>Nonzeros</th><th class="l">Status</th><th>Solve time</th><th>CPU time</th><th>Peak memory</th><th>Peak heap</th><th>Allocations</th></tr></thead><tbody>` +
+         P.map(q => `<tr><td>${q.size}</td><td>${cnt(q.rows)}</td><td>${cnt(q.cols)}</td><td>${cnt(q.nnz)}</td><td class="l">${statusChip(q.status)}</td><td>${secs(q.time)}</td><td>${secs(q.cpu)}</td><td>${MB(q.mem)}</td><td>${MB(q.heap)}</td><td>${cnt(q.allocs)}</td></tr>`).join("") + `</tbody></table></div>`;
+    h += `<p class="help" style="margin:0">Only runs that reached a definite result are fitted. The fit is empirical: it describes this family, engine and size range on this machine, not a worst-case bound (the worst case of simplex and branch-and-cut is exponential).</p>`;
+  }
+  el.innerHTML = h;
+  $("sc-family").addEventListener("change", e => { sc.family = e.target.value; sc.points = []; renderScaling(); });
+  $("sc-sizes").addEventListener("change", e => { sc.sizes = e.target.value; });
+  $("sc-run").addEventListener("click", runSeries);
+  $("sc-stop").addEventListener("click", () => { sc.stop = true; sc.msg = "Stopping after the current size…"; renderScaling(); });
+}
+async function runSeries() {
+  const sc = S.scale;
+  const sizes = sc.sizes.split(/[\s,;]+/).map(Number).filter(v => v >= 2 && v <= 5000);
+  if (!sizes.length) { sc.msg = "Enter sizes like 50,100,200."; renderScaling(); return; }
+  sc.running = true; sc.stop = false; sc.points = [];
+  for (const size of sizes) {
+    if (sc.stop) break;
+    sc.msg = `Generating size ${size}…`; renderScaling();
+    let m;
+    try { m = await api("/api/generate", { method: "POST", body: JSON.stringify({ family: sc.family, size }) }); }
+    catch (e) { sc.msg = "Generator failed: " + e.message; break; }
+    setModel(m);
+    sc.msg = `Solving size ${size} (${cnt(m.stats.nnz)} nonzeros)…`; renderScaling();
+    const run = await startSolve();
+    if (!run) { sc.msg = "Could not start the solve."; break; }
+    await new Promise(res => { run.onDone = res; });
+    if (!run.result) { sc.msg = `Size ${size}: ${run.error || run.state}`; continue; }
+    const R = run.result, M = runMetrics(run);
+    sc.points.push({ size, rows: R.problem.rows, cols: R.problem.cols, nnz: R.problem.nonzeros, status: R.status,
+                     time: R.times.solve, cpu: M.cpu, mem: M.peakWS, heap: M.heapPeak, allocs: M.allocs });
+    if (S.tab === "scale") renderScaling();
+  }
+  sc.running = false;
+  sc.msg = sc.points.length ? `Done: ${sc.points.length} sizes.` : sc.msg;
+  showTab("scale");
+}
+
+// ---------- tabs ----------
+function showTab(t) {
+  S.tab = t;
+  document.querySelectorAll(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === t ? "true" : "false"));
+  ["summary", "vars", "cons", "res", "cmp", "scale", "log", "verify"].forEach(k => $("tab-" + k).hidden = k !== t);
+  if (t === "res") renderResources();
+  if (t === "cmp") renderCompare();
+  if (t === "scale") renderScaling();
+  if (t === "vars") renderVars();
+  if (t === "cons") renderCons();
+  if (t === "summary" && S.current) renderSummary();
+}
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+</script>
+</body>
+</html>

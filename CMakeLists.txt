@@ -87,6 +87,8 @@ set(SOVEREIGN_ENGINE_SOURCES
   src/basis_lu.cpp
   src/simplex.cpp
   src/mip.cpp
+  src/mip_probe.cpp
+  src/report_io.cpp
   src/sparse_ldl.cpp
   src/qp_ipm.cpp
   src/solve.cpp
@@ -123,8 +125,13 @@ if(SOVEREIGN_HAVE_CUDA)
   # through a static library with no extra CMake plumbing required.
 endif()
 
-add_executable(sovereign_solve src/main.cpp)
+# alloc_stats.cpp replaces global operator new/delete for this executable only
+# (allocation accounting reported in --json output); tests and tools are unaffected.
+add_executable(sovereign_solve src/main.cpp src/alloc_stats.cpp)
 target_link_libraries(sovereign_solve sovereign_engine)
+if(WIN32)
+  target_link_libraries(sovereign_solve psapi)
+endif()
 
 enable_testing()
 add_executable(run_checks tests/run_checks.cpp)

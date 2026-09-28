@@ -17,11 +17,38 @@
 #include <iostream>
 #include <thread>
 #include <exception>
+#include <mutex>
+#include <condition_variable>
+#include <fstream>
+#include <sstream>
+#include <unordered_map>
+#include <stdexcept>
+
+// Helper engines of the concurrent portfolio run below normal priority so the
+// dual simplex (usually the winner) keeps its core. Declared directly rather
+// than through <windows.h>, whose macros clash with ordinary identifiers.
+#ifdef _WIN32
+extern "C" __declspec(dllimport) void* __stdcall GetCurrentThread();
+extern "C" __declspec(dllimport) int __stdcall SetThreadPriority(void* thread, int priority);
+static void lower_thread_priority() { SetThreadPriority(GetCurrentThread(), -1); }   // THREAD_PRIORITY_BELOW_NORMAL
+#else
+static void lower_thread_priority() {}
+#endif
 
 // MPS parse time of the last solve_mps* call on this thread, so the CLI can
 // report solve time on the same footing as HiGHS's run() (which excludes it).
 static thread_local double g_last_read_seconds = 0;
 double last_read_seconds() { return g_last_read_seconds; }
+
+// The reported status follows the independent verifier's worst relative
+// residual on the original problem: "optimal" up to the engine's tolerance,
+// "near_optimal" up to 1e-4, and "inaccurate" beyond that -- an answer the
+// verifier does not certify is never labelled as (nearly) optimal.
+static std::string certified_status(const std::string& engine_status, double eps, double opt_tol) {
+    if (engine_status != "optimal" && engine_status != "near_optimal") return engine_status;
+    if (eps <= opt_tol) return engine_status;
+    return eps <= 1e-4 ? "near_optimal" : "inaccurate";
+}
 
 static LPProblem timed_read_mps(const std::string& path) {
     auto t0 = std::chrono::steady_clock::now();
@@ -193,7 +220,7 @@ Solution solve_mps(const std::string& path, double tol, int max_iterations, doub
 
     Solution s;
     s.status = result.converged ? "optimal" : "iteration_limit";
-    if (s.status == "optimal" && std::max({final.eps_P, final.eps_D, final.eps_G}) > 10.0 * tol) s.status = "near_optimal";
+    s.status = certified_status(s.status, std::max({final.eps_P, final.eps_D, final.eps_G}), 10.0 * tol);
     s.has_solution = true;
     s.objective = report_objective(ranged, final.objective);
     for (size_t j = 0; j < problem.col_names.size(); ++j) s.x[problem.col_names[j]] = x_orig[j];
@@ -214,7 +241,12 @@ Solution solve_mps_simplex(const std::string& path, const SimplexOptions& opt, b
     s.engine_used = "simplex";
     s.eps_P = s.eps_D = s.eps_G = INF;
 
+    const auto tpre = std::chrono::steady_clock::now();
     PresolveResult pres = presolve(ranged, use_presolve ? 500 : 0);
+    if (opt.verbose)
+        std::printf("  presolve: %d x %d -> %d x %d in %d passes, %zu steps, %.4fs\n", m0, n0,
+                    (int)pres.row_ids.size(), (int)pres.col_ids.size(), pres.passes, pres.steps.size(),
+                    std::chrono::duration<double>(std::chrono::steady_clock::now() - tpre).count());
     if (pres.status == "infeasible" || pres.status == "unbounded") { s.status = pres.status; return s; }
     RangedLP& reduced = pres.reduced;
 
@@ -309,7 +341,18 @@ Solution solve_mps_simplex(const std::string& path, const SimplexOptions& opt, b
         DualSimplex& W = used_b ? spx_b : spx;
         s.simplex_seconds = W.stats().seconds;
         s.iterations = W.stats().iterations;
-        if (st == "dual_infeasible") st = "unbounded_or_infeasible";
+        if (st == "dual_infeasible") {
+            // Dual phase 1 found no dual feasible basis. That verdict rests on
+            // tolerances, so it is not trusted: the primal simplex continues
+            // from this basis and either reaches the optimum, returns an
+            // unbounded ray (a real proof), or proves infeasibility.
+            SimplexOptions fo = sopt;
+            fo.stop_flag = nullptr;
+            std::string ps = W.solve_primal(fo);
+            if (opt.verbose) std::printf("  simplex: dual phase 1 reported dual infeasible; primal simplex -> %s\n", ps.c_str());
+            st = ps;
+            s.iterations += W.stats().iterations;
+        }
         if (st != "optimal" && st != "iteration_limit" && st != "time_limit") { s.status = st; return s; }
         s.status = st;
         auto xs = W.primal();
@@ -381,7 +424,246 @@ Solution solve_mps_simplex(const std::string& path, const SimplexOptions& opt, b
     s.eps_P = final.eps_P; s.eps_D = final.eps_D; s.eps_G = final.eps_G;
     // The reported status follows the independent verifier on the original
     // problem, not the engine's own (scaled, presolved) view.
-    if (s.status == "optimal" && std::max({s.eps_P, s.eps_D, s.eps_G}) > 1e-6) s.status = "near_optimal";
+    s.status = certified_status(s.status, std::max({s.eps_P, s.eps_D, s.eps_G}), 1e-6);
+    return s;
+}
+
+// ============================================== concurrent LP portfolio ==
+//
+// One presolve and one scaling, then up to four engines on their own threads:
+//   0 dual simplex          1 primal simplex
+//   2 interior point -> crossover -> simplex polish
+//   3 PDLP (GPU when built with CUDA) -> crossover -> simplex polish
+// Each engine's answer is postsolved and checked by the independent verifier
+// on the original problem. The first certified optimum (or a definitive
+// infeasible / unbounded proof) wins and cancels the others; an engine whose
+// "optimal" fails verification simply does not claim, and the rest go on.
+Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt, bool use_presolve,
+                              double pdlp_tol, unsigned engines) {
+    LPProblem problem = timed_read_mps(path);
+    RangedLP ranged = to_ranged_lp(problem);
+    const int n0 = ranged.n(), m0 = ranged.m();
+    PresolveResult pres = presolve(ranged, use_presolve ? 500 : 0);
+    if (pres.status == "infeasible" || pres.status == "unbounded" || pres.reduced.n() == 0)
+        return solve_mps_simplex(path, opt, use_presolve);          // decided by presolve alone
+    const RangedLP& reduced = pres.reduced;
+
+    ScalingResult sr;
+    if (opt.scaling) sr = scale(reduced);
+    else { sr.scaled = reduced; sr.Dr.assign(reduced.m(), 1.0); sr.Dc.assign(reduced.n(), 1.0); }
+    const CSR ATred = to_csc_as_transposed_csr(reduced.A);
+
+    struct Outcome {
+        std::string st = "not started";
+        std::vector<double> x_orig, y_orig;
+        KKTReport k;
+        int iterations = 0;
+        double seconds = 0;
+        bool has_point = false;
+    };
+    const char* names[4] = {"dual simplex", "primal simplex", "ipm+crossover",
+#ifdef SOVEREIGN_WITH_CUDA
+                            "pdlp(gpu)+crossover"
+#else
+                            "pdlp(cpu)+crossover"
+#endif
+    };
+    Outcome out[4];
+    std::atomic<bool> stop{false};
+    std::atomic<int> winner{-1};
+    std::mutex log_mu;
+    const auto t0 = std::chrono::steady_clock::now();
+    auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
+    std::mutex wait_mu;
+    std::condition_variable wait_cv;
+    auto claim = [&](int who) {
+        int e = -1;
+        if (winner.compare_exchange_strong(e, who)) {
+            { std::lock_guard<std::mutex> g(wait_mu); stop.store(true); }
+            wait_cv.notify_all();
+        }
+    };
+    // Staggered start: an engine waits `secs` and runs only if nobody has won
+    // by then, so easy LPs never pay for starting the other engines (or for
+    // creating a CUDA context).
+    auto start_after = [&](double secs) {
+        std::unique_lock<std::mutex> lk(wait_mu);
+        return !wait_cv.wait_for(lk, std::chrono::duration<double>(secs), [&]() { return stop.load(); });
+    };
+    const long long nnzA = (long long)reduced.A.val.size();
+
+    // xs, ys live in the simplex's scaled space.
+    auto finish = [&](int who, const std::string& st, const std::vector<double>& xs, const std::vector<double>& ys, int its) {
+        Outcome& o = out[who];
+        o.st = st; o.iterations = its; o.seconds = elapsed();
+        if (st == "infeasible" || st == "unbounded") claim(who);
+        else if (st == "optimal") {
+            std::vector<double> x_r(reduced.n()), y_r(reduced.m()), z_r(reduced.n()), z_orig;
+            for (int j = 0; j < reduced.n(); ++j) x_r[j] = sr.Dc[j] * xs[j];
+            for (int i = 0; i < reduced.m(); ++i) y_r[i] = sr.Dr[i] * ys[i];
+            auto ATy = matvec_T(ATred, y_r);
+            for (int j = 0; j < reduced.n(); ++j) z_r[j] = reduced.c[j] - ATy[j];
+            postsolve(n0, m0, pres.row_ids, pres.col_ids, x_r, y_r, z_r, pres.steps, o.x_orig, o.y_orig, z_orig);
+            o.k = verify(ranged, o.x_orig, o.y_orig);
+            o.has_point = true;
+            if (std::max({o.k.eps_P, o.k.eps_D, o.k.eps_G}) <= 1e-6) claim(who);
+        }
+        if (opt.verbose) {
+            std::lock_guard<std::mutex> g(log_mu);
+            std::printf("  concurrent: %-20s -> %-16s %8.3fs  %d its%s\n", names[who], st.c_str(), o.seconds, its,
+                        o.has_point ? (std::max({o.k.eps_P, o.k.eps_D, o.k.eps_G}) <= 1e-6 ? "  (verified)" : "  (NOT verified)") : "");
+        }
+    };
+    auto guarded = [&](int who, auto&& body) {
+        return std::thread([&, who, body]() {
+            lower_thread_priority();
+            try { body(); }
+            catch (const std::exception& e) { finish(who, std::string("error: ") + e.what(), {}, {}, 0); }
+        });
+    };
+
+    SimplexOptions so = opt;
+    so.stop_flag = &stop;
+    std::vector<std::thread> threads;
+    // Tiny LPs: the dual simplex finishes before a helper could start, so do
+    // not even create the threads (explicit engine choices are honoured).
+    if (engines == 0xFu && nnzA < opt.concurrent_min_nnz) engines = 1u;
+    if (engines & 2u) threads.push_back(guarded(1, [&]() {
+        if (engines != 2u && !start_after(opt.primal_delay)) return;
+        DualSimplex spx; spx.load(sr.scaled);
+        std::string st = spx.solve_primal(so);
+        finish(1, st, spx.primal(), spx.row_duals(), spx.stats().iterations);
+    }));
+    if (engines & 4u) threads.push_back(guarded(2, [&]() {
+        if (!start_after(opt.concurrent_delay)) return;
+        IpmOptions io;
+        io.stop_flag = &stop;
+        io.time_limit = opt.time_limit;
+        // A converging IPM needs a few dozen iterations; one still running
+        // after 80 is stalling and only slows the dual simplex, so it stops.
+        io.max_iterations = 80;
+        IpmResult r = solve_ipm(sr.scaled, io);
+        if (r.status != "optimal" && r.status != "near_optimal") { finish(2, "ipm " + r.status, {}, {}, r.iterations); return; }
+        DualSimplex spx; spx.load(sr.scaled);
+        spx.crossover_start(r.x, r.y);
+        SimplexOptions o = so; o.shift_instead_of_phase1 = true;
+        std::string st = spx.solve(o);
+        finish(2, st, spx.primal(), spx.row_duals(), r.iterations + spx.stats().iterations);
+    }));
+    // First-order PDLP pays off only on large LPs (and its GPU start-up costs
+    // ~0.1 s), so it joins late and only above a size threshold.
+    if ((engines & 8u) && (nnzA >= opt.pdlp_min_nnz || engines == 8u)) threads.push_back(guarded(3, [&]() {
+        if (engines != 8u && !start_after(opt.pdlp_delay)) return;
+        auto [pf, meta] = build_pdlp_form(reduced);
+        ScalingResult psr = scale(pf);
+#ifdef SOVEREIGN_WITH_CUDA
+        PdlpResult pr = solve_pdhg_gpu(pf, psr.scaled, psr.Dr, psr.Dc, 0.99, 200000, 64, pdlp_tol, &stop);
+#else
+        PdlpResult pr = solve_pdhg(pf, psr.scaled, psr.Dr, psr.Dc, 0.99, 200000, 64, pdlp_tol, &stop);
+#endif
+        if (stop.load()) { finish(3, "stopped", {}, {}, pr.iterations); return; }
+        std::vector<double> xp, yp;
+        extract_solution(meta, pr.x, pr.y, xp, yp);
+        for (int j = 0; j < reduced.n(); ++j) xp[j] /= sr.Dc[j];
+        for (int i = 0; i < reduced.m(); ++i) yp[i] /= sr.Dr[i];
+        DualSimplex spx; spx.load(sr.scaled);
+        spx.crossover_start(xp, yp);
+        SimplexOptions o = so; o.shift_instead_of_phase1 = true;
+        std::string st = spx.solve(o);
+        finish(3, st, spx.primal(), spx.row_duals(), pr.iterations + spx.stats().iterations);
+    }));
+    // The dual simplex runs on the calling thread (no spawn, warm caches):
+    // on easy LPs it finishes before any helper has started.
+    if (engines & 1u) {
+        try {
+            DualSimplex spx; spx.load(sr.scaled);
+            std::string st = spx.solve(so);
+            int its = spx.stats().iterations;
+            if (st == "dual_infeasible") { st = spx.solve_primal(so); its += spx.stats().iterations; }   // see solve_mps_simplex
+            finish(0, st, spx.primal(), spx.row_duals(), its);
+        } catch (const std::exception& e) { finish(0, std::string("error: ") + e.what(), {}, {}, 0); }
+    }
+    for (auto& t : threads) t.join();
+
+    // Winner, or else the best verified-looking point any engine produced.
+    int w = winner.load();
+    if (w < 0) {
+        double best = INF;
+        for (int e = 0; e < 4; ++e)
+            if (out[e].has_point) {
+                double eps = std::max({out[e].k.eps_P, out[e].k.eps_D, out[e].k.eps_G});
+                if (eps < best) { best = eps; w = e; }
+            }
+    }
+    Solution s;
+    s.eps_P = s.eps_D = s.eps_G = INF;
+    std::string summary;
+    for (int e = 0; e < 4; ++e)
+        if (engines & (1u << e)) {
+            if (!summary.empty()) summary += " | ";
+            summary += std::string(names[e]) + ": " + out[e].st;
+        }
+    if (w < 0) {
+        // No engine produced a point: report the most informative status.
+        s.status = out[0].st != "not run" ? out[0].st : out[1].st;
+        if (s.status == "dual_infeasible") s.status = "unbounded_or_infeasible";
+        s.engine_used = "concurrent (" + summary + ")";
+        return s;
+    }
+    const Outcome& o = out[w];
+    s.engine_used = std::string(names[w]) + " won the concurrent race (" + summary + ")";
+    s.iterations = o.iterations;
+    s.simplex_seconds = o.seconds;
+    s.status = o.st;
+    if (o.has_point) {
+        s.has_solution = true;
+        s.objective = report_objective(ranged, o.k.objective);
+        for (size_t j = 0; j < problem.col_names.size(); ++j) s.x[problem.col_names[j]] = o.x_orig[j];
+        for (size_t i = 0; i < problem.row_names.size(); ++i) s.y[problem.row_names[i]] = o.y_orig[i];
+        s.eps_P = o.k.eps_P; s.eps_D = o.k.eps_D; s.eps_G = o.k.eps_G;
+        s.status = certified_status(s.status, std::max({s.eps_P, s.eps_D, s.eps_G}), 1e-6);
+    }
+    return s;
+}
+
+Solution check_solution(const std::string& path, const std::string& solution_file) {
+    LPProblem problem = timed_read_mps(path);
+    RangedLP ranged = to_ranged_lp(problem);
+    std::unordered_map<std::string, int> col, row;
+    for (int j = 0; j < ranged.n(); ++j) col[ranged.col_names[j]] = j;
+    for (int i = 0; i < ranged.m(); ++i) row[ranged.row_names[i]] = i;
+    std::vector<double> x(ranged.n(), 0.0), y(ranged.m(), 0.0);
+    std::ifstream in(solution_file);
+    if (!in) throw std::runtime_error("cannot open solution file: " + solution_file);
+    std::string line, section = "PRIMAL";
+    bool has_duals = false;
+    while (std::getline(in, line)) {
+        std::istringstream ls(line);
+        std::string name; double v;
+        if (!(ls >> name)) continue;
+        if (name[0] == '#') continue;                                   // comment line
+        if (name == "PRIMAL" || name == "DUAL") { section = name; has_duals |= name == "DUAL"; continue; }
+        if (!(ls >> v)) throw std::runtime_error("bad solution line: " + line);
+        auto& idx = section == "PRIMAL" ? col : row;
+        auto it = idx.find(name);
+        if (it == idx.end()) throw std::runtime_error("unknown " + section + " name in solution file: " + name);
+        (section == "PRIMAL" ? x : y)[it->second] = v;
+    }
+    // Duals in the file follow the model's own sense; the verifier works on
+    // the minimization form (to_ranged_lp negates c for "max").
+    if (problem.sense == "max") for (double& v : y) v = -v;
+    KKTReport k = verify(ranged, x, y);
+    Solution s;
+    s.status = "checked";
+    s.engine_used = "none (external solution)";
+    s.has_solution = true;
+    s.objective = report_objective(ranged, k.objective);
+    s.eps_P = k.eps_P;
+    s.eps_D = has_duals ? k.eps_D : NAN;
+    s.eps_G = has_duals ? k.eps_G : NAN;
+    for (int j = 0; j < ranged.n(); ++j)
+        if (!problem.integer.empty() && problem.integer[j])
+            s.max_int_violation = std::max(s.max_int_violation, std::fabs(x[j] - std::round(x[j])));
     return s;
 }
 
@@ -499,6 +781,6 @@ Solution solve_mps_ipm(const std::string& path, const IpmOptions& opt, bool use_
     s.eps_P = final.eps_P; s.eps_D = final.eps_D; s.eps_G = final.eps_G;
     // The reported status follows the independent verifier on the original
     // problem, not the engine's own (scaled, presolved) view.
-    if (s.status == "optimal" && std::max({s.eps_P, s.eps_D, s.eps_G}) > 1e-6) s.status = "near_optimal";
+    s.status = certified_status(s.status, std::max({s.eps_P, s.eps_D, s.eps_G}), 1e-6);
     return s;
 }

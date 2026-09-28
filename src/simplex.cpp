@@ -301,16 +301,21 @@ void DualSimplex::row_of_tableau(const std::vector<double>& rho, std::vector<dou
     int rho_nnz = 0;
     for (int i = 0; i < m_; ++i) rho_nnz += rho[i] != 0.0;
     if (rho_nnz > m_ / 10) {
-        // Dense rho: the pivot row touches most columns anyway, so skip the
-        // per-entry bookkeeping and hand back every index.
+        // Dense rho: accumulate without per-entry bookkeeping, then collect
+        // the nonzeros in one pass (the ratio test and dual update loop over
+        // nz, so zeros and basic columns are left out).
         for (int i = 0; i < m_; ++i) {
             double ri = rho[i];
             if (ri == 0.0) continue;
             for (int p = rptr_[i]; p < rptr_[i + 1]; ++p) alpha[ridx_[p]] += ri * rval_[p];
             alpha[n_ + i] = ri;
         }
-        nz.resize(N());
-        for (int j = 0; j < N(); ++j) nz[j] = j;
+        const int NN = N();
+        for (int j = 0; j < NN; ++j)
+            if (alpha[j] != 0.0) {
+                if (status_[j] == VarStatus::Basic) alpha[j] = 0.0;
+                else { row_mark_[j] = 1; nz.push_back(j); }
+            }
         return;
     }
     for (int i = 0; i < m_; ++i) {
@@ -434,7 +439,7 @@ std::string DualSimplex::dual_loop(bool phase1) {
             if (bland) {
                 if (r < 0 || basis_[k] < basis_[r]) r = k;
             } else {
-                double score = opt_.steepest_edge ? inf * inf / dse_[k] : inf;
+                double score = opt_.steepest_edge ? inf * inf / dse_[k] : std::fabs(inf);
                 if (score > best) { best = score; r = k; }
             }
         }
@@ -660,7 +665,6 @@ std::string DualSimplex::dual_phase1() {
         }
     }
     std::string st = dual_loop(true);
-
     lb_ = lb_orig_; ub_ = ub_orig_;
     cost_ = c_orig_;                     // drop any Harris shifts made during phase 1
     compute_duals();
@@ -820,6 +824,181 @@ std::string DualSimplex::primal_loop() {
 
 // ============================================================ top level ==
 
+// ================================================== primal phase 1 ==
+//
+// Minimizes the sum of infeasibilities of the basic variables. The phase-1
+// cost of a basic variable is -1 below its lower bound, +1 above its upper
+// bound and 0 inside its box; nonbasic variables sit at bounds and cost 0.
+// Costs and duals are rebuilt every iteration (the infeasible set changes as
+// the basis moves). The ratio test stops at the first breakpoint: a feasible
+// basic variable reaching a bound, or an infeasible one reaching the bound it
+// violates (becoming feasible) -- so the sum of infeasibilities never rises.
+std::string DualSimplex::primal_phase1() {
+    const int NN = N();
+    const double INF = std::numeric_limits<double>::infinity();
+    const double tol = opt_.primal_tol;
+    std::vector<double> col(m_), alpha_q, spike, e(m_), rho, alpha_row;
+    std::vector<int> row_nz;
+    devex_.assign(NN, 1.0);
+    int consecutive_rejects = 0, stall = 0;
+    bool bland = false, confirmed = false;
+    double best_inf = INF;
+
+    ensure_factor();
+    compute_primal();
+    while (true) {
+        if (stats_.iterations >= opt_.max_iterations) return "iteration_limit";
+        if ((stats_.iterations & 63) == 0) {
+            if (out_of_time()) return "time_limit";
+            if (opt_.stop_flag && opt_.stop_flag->load(std::memory_order_relaxed)) return "stopped";
+        }
+        if (lu_.num_updates() >= opt_.refactor_frequency) { refactor(); compute_primal(); }
+
+        // ---- phase-1 costs and duals ----
+        double sinf = 0.0;
+        std::fill(cost_.begin(), cost_.end(), 0.0);
+        for (int k = 0; k < m_; ++k) {
+            int j = basis_[k];
+            if (x_[j] < lb_[j] - tol) { cost_[j] = -1.0; sinf += lb_[j] - x_[j]; }
+            else if (x_[j] > ub_[j] + tol) { cost_[j] = 1.0; sinf += x_[j] - ub_[j]; }
+        }
+        if (sinf == 0.0) return "optimal";
+        compute_duals();
+
+        if (sinf < best_inf * (1.0 - 1e-12)) { best_inf = sinf; stall = 0; bland = false; }
+        else if (++stall > opt_.stall_limit && opt_.bland_fallback) bland = true;
+
+        // ---- CHUZC: entering variable by Devex ----
+        int q = -1; double best = 0.0;
+        for (int j = 0; j < NN; ++j) {
+            VarStatus s = status_[j];
+            if (s == VarStatus::Basic || lb_[j] == ub_[j]) continue;
+            double dj = d_[j];
+            bool bad = (s == VarStatus::AtLower && dj < -opt_.dual_tol) ||
+                       (s == VarStatus::AtUpper && dj > opt_.dual_tol) ||
+                       (s == VarStatus::AtZero && std::fabs(dj) > opt_.dual_tol);
+            if (!bad) continue;
+            if (bland) { if (q < 0) q = j; continue; }
+            double score = dj * dj / devex_[j];
+            if (score > best) { best = score; q = j; }
+        }
+        if (q < 0) {
+            // Phase-1 optimum with positive infeasibility: confirm on a fresh factor.
+            if (!confirmed) { confirmed = true; refactor(); compute_primal(); continue; }
+            return "infeasible";
+        }
+        confirmed = false;
+        const double dir = d_[q] < 0 ? 1.0 : -1.0;
+
+        std::fill(col.begin(), col.end(), 0.0);
+        add_column(q, 1.0, col);
+        { ScopeTimer st(stats_.t_ftran); lu_.ftran(col, alpha_q, &spike); }
+
+        // ---- ratio test to the first breakpoint (Harris two-pass) ----
+        // Basic x_j moves by -dir * alpha_q[k] * theta.
+        auto breakpoint = [&](int k, bool harris) -> double {
+            double a = dir * alpha_q[k];
+            if (std::fabs(a) < opt_.pivot_tol) return INF;
+            int j = basis_[k];
+            double slack = harris ? tol : 0.0;
+            if (a > 0) {                                   // x_j decreases
+                if (x_[j] > ub_[j] + tol) return (x_[j] - ub_[j] + slack) / a;
+                if (x_[j] >= lb_[j] - tol && std::isfinite(lb_[j])) return (x_[j] - lb_[j] + slack) / a;
+            } else {                                       // x_j increases
+                if (x_[j] < lb_[j] - tol) return (lb_[j] - x_[j] + slack) / -a;
+                if (x_[j] <= ub_[j] + tol && std::isfinite(ub_[j])) return (ub_[j] - x_[j] + slack) / -a;
+            }
+            return INF;
+        };
+        double theta_max = INF;
+        for (int k = 0; k < m_; ++k) theta_max = std::min(theta_max, breakpoint(k, true));
+        const double range = ub_[q] - lb_[q];
+        if (range <= theta_max) {
+            if (!std::isfinite(range)) {
+                if (opt_.verbose) std::printf("  simplex: primal phase 1 found no breakpoint\n");
+                return "numerical_error";
+            }
+            for (int k = 0; k < m_; ++k) x_[basis_[k]] -= dir * range * alpha_q[k];
+            if (status_[q] == VarStatus::AtLower) { status_[q] = VarStatus::AtUpper; x_[q] = ub_[q]; }
+            else { status_[q] = VarStatus::AtLower; x_[q] = lb_[q]; }
+            ++stats_.iterations; ++stats_.phase1_iterations; ++stats_.bound_flips;
+            continue;
+        }
+        int r = -1; double amax = 0.0, theta = 0.0;
+        for (int k = 0; k < m_; ++k) {
+            double t = breakpoint(k, false);
+            if (t > theta_max) continue;
+            double a = std::fabs(alpha_q[k]);
+            if (bland ? (r < 0 || basis_[k] < basis_[r]) : a > amax) { amax = a; r = k; theta = t; }
+        }
+        if (r < 0) return "numerical_error";
+        theta = std::max(theta, 0.0);
+        const int p = basis_[r];
+        const bool decreasing = dir * alpha_q[r] > 0;
+        // The bound p stops at: the violated one if it was infeasible, else the one it reached.
+        const bool leave_lower = decreasing ? !(x_[p] > ub_[p] + tol) : (x_[p] < lb_[p] - tol);
+
+        std::fill(e.begin(), e.end(), 0.0); e[r] = 1.0;
+        { ScopeTimer st(stats_.t_btran); lu_.btran(e, rho); }
+        { ScopeTimer st(stats_.t_row); row_of_tableau(rho, alpha_row, row_nz); }
+        const double piv = alpha_q[r];
+        if (std::fabs(piv - alpha_row[q]) > 1e-7 * (1.0 + std::fabs(piv))) {
+            if (lu_.num_updates() > 0 && consecutive_rejects < 3) {
+                ++consecutive_rejects; refactor(); compute_primal(); continue;
+            }
+        }
+        consecutive_rejects = 0;
+
+        for (int k = 0; k < m_; ++k) if (alpha_q[k] != 0.0) x_[basis_[k]] -= dir * theta * alpha_q[k];
+        x_[q] += dir * theta;
+
+        const double wq = devex_[q];
+        for (int j : row_nz) {
+            if (status_[j] == VarStatus::Basic || alpha_row[j] == 0.0) continue;
+            double ratio = alpha_row[j] / piv;
+            devex_[j] = std::max(devex_[j], ratio * ratio * wq);
+        }
+        devex_[p] = std::max(wq / (piv * piv), 1.0);
+
+        status_[p] = leave_lower ? VarStatus::AtLower : VarStatus::AtUpper;
+        x_[p] = leave_lower ? lb_[p] : ub_[p];
+        slot_of_[p] = -1;
+        basis_[r] = q; slot_of_[q] = r; status_[q] = VarStatus::Basic;
+        dse_[r] = 1.0;
+        bool upd_ok;
+        { ScopeTimer st(stats_.t_update); upd_ok = lu_.update(r, spike, alpha_q[r]); }
+        if (!upd_ok) { refactor(); compute_primal(); }
+        ++stats_.iterations; ++stats_.phase1_iterations;
+        if (opt_.verbose >= 2 && stats_.iterations % 1000 == 0)
+            std::printf("  primal ph1 it %7d  sum infeasibility %.6e\n", stats_.iterations, sinf);
+    }
+}
+
+std::string DualSimplex::solve_primal(const SimplexOptions& opt) {
+    opt_ = opt;
+    stats_ = SimplexStats();
+    t_start_ = now_seconds();
+    cost_ = c_orig_; lb_ = lb_orig_; ub_ = ub_orig_;
+    for (int j = 0; j < N(); ++j) if (status_[j] != VarStatus::Basic) place_nonbasic(j);
+    std::string st = primal_phase1();
+    if (opt_.verbose) std::printf("  simplex: primal phase 1 -> %s after %d its\n", st.c_str(), stats_.phase1_iterations);
+    if (st == "optimal") {
+        cost_ = c_orig_;
+        ensure_factor();
+        compute_primal();
+        compute_duals();
+        st = primal_loop();
+        if (opt_.verbose) std::printf("  simplex: primal phase 2 -> %s after %d its\n", st.c_str(), stats_.primal_iterations);
+    }
+    cost_ = c_orig_;
+    if (st == "optimal") { ensure_factor(); compute_primal(); compute_duals(); }
+    stats_.seconds = now_seconds() - t_start_;
+    if (opt_.verbose)
+        std::printf("  simplex: primal %s  its %d (ph1 %d)  flips %d  refactors %d  %.3fs\n", st.c_str(),
+                    stats_.iterations, stats_.phase1_iterations, stats_.bound_flips, stats_.refactorizations, stats_.seconds);
+    return st;
+}
+
 std::string DualSimplex::solve(const SimplexOptions& opt) {
     opt_ = opt;
     stats_ = SimplexStats();
@@ -872,6 +1051,14 @@ std::string DualSimplex::solve(const SimplexOptions& opt) {
     if (bad > 0 && !shift_ok) {
         std::string st = dual_phase1();
         if (opt_.verbose) std::printf("  simplex: dual phase 1 (%d infeasible) -> %s after %d its\n", bad, st.c_str(), stats_.phase1_iterations);
+        // "dual_infeasible" after phase 1 is a tolerance-based verdict (dual
+        // infeasibilities left above 1e3 * dual_tol). Rather than stop, shift
+        // those costs, run phase 2, and let the primal cleanup remove the
+        // shifts: it ends in the true optimum or in a genuine unbounded ray.
+        if (st == "dual_infeasible") {
+            if (opt_.verbose) std::printf("  simplex: continuing with cost shifting; the primal cleanup decides\n");
+            st = "optimal";
+        }
         if (st != "optimal") return finish(st);
     }
 

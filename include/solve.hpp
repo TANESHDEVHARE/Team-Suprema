@@ -61,6 +61,19 @@ struct IpmOptions;
 Solution solve_mps_ipm(const std::string& path, const IpmOptions& opt, bool use_presolve = true);
 
 
+// Concurrent LP portfolio: dual simplex, primal simplex, IPM+crossover and
+// PDLP(GPU)+crossover on their own threads after one shared presolve; the
+// first answer the independent verifier certifies wins and stops the rest.
+// engines: bit 0 dual, 1 primal, 2 ipm, 3 pdlp (default all four).
+Solution solve_mps_concurrent(const std::string& path, const SimplexOptions& opt, bool use_presolve = true,
+                              double pdlp_tol = 1e-4, unsigned engines = 0xFu);
+
+// Independent check of an external solution (any solver's): reads the model
+// and a text file of "name value" lines -- column values, then optionally a
+// line "DUAL" followed by row duals -- and runs the same KKT verifier on the
+// original problem. eps_D / eps_G are NaN when no duals are given.
+Solution check_solution(const std::string& path, const std::string& solution_file);
+
 // Seconds spent parsing the MPS file in the most recent solve_mps* call on this thread.
 double last_read_seconds();
 struct MipOptions;

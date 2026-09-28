@@ -73,6 +73,67 @@ followed by a line `DUAL` and `name value` lines of row duals, in the model's
 own objective sense. It is how the benchmarks hold HiGHS's answers to the same
 verifier as ours.
 
+## Command-line showcase
+
+```
+sovereign info                                          # binary, CPU threads, GPU, engines
+sovereign solve   model.mps [--engine auto|concurrent|dual|ipm|crossover|pdlp|mip] [--time 60] [--quiet]
+sovereign compare model.mps --engines dual,concurrent,ipm,crossover [--highs]
+sovereign scale   --family transport|refinery_lp|refinery_milp|refinery_qp --sizes 100,200,400,800
+sovereign verify  model.mps solution.sol
+```
+
+(`sovereign.bat` on Windows; `python tools/sovereign.py …` anywhere.) `solve`
+prints the live solver log, then a report: verified status and its meaning,
+objective, the independent verifier's residuals, MILP bound/gap/nodes, wall and
+CPU time, cores busy, peak memory, heap allocations and peak live heap, GPU
+utilization and memory, activity sparklines, time per engine phase, structural
+sizes and the solution. `compare` runs several engines on one model side by
+side (optionally HiGHS as a reference, whose answer is also put through our
+verifier). `scale` measures empirical time and space complexity (fitted
+exponents, log–log text plots). Runs are kept under `cli_runs/`. The CLI and the
+web interface share `tools/solver_runner.py`.
+
+## Interface
+
+```
+start_ui.bat                        # Windows: starts the server and opens the browser
+python tools/ui_server.py           # any OS; then open http://127.0.0.1:8765
+```
+
+A local web interface over the same CLI (Python standard library only; the
+page loads nothing from the internet; the server listens on 127.0.0.1 only).
+Upload an `.mps` / `.qps` file (or `.gz`), or pick a bundled sample; choose the
+engine, time limit, MILP threads and gap; watch the live solver log (and, for
+MILP, the incumbent/bound chart). Results: the verified status with its meaning,
+objective, timings, engine, the verifier's residuals, MILP bound/gap/nodes,
+searchable variable and constraint tables (values, bounds, costs, reduced costs,
+activities, slacks, duals), and downloads: `.sol` (the `--check` format), CSV,
+full JSON and the log. The Verify tab checks any solver's solution file against
+the model. Runs are stored under `ui_runs/`.
+
+The interface is also the measurement bench for the solver on this machine:
+
+- **Resources** (per run): wall and CPU time, average and peak cores busy, peak
+  memory (OS working set and private bytes), and — from the solver's own
+  counting allocator (`src/alloc_stats.cpp`) — heap allocations, bytes
+  allocated and peak live heap; CPU, memory and GPU (utilization, device
+  memory via `nvidia-smi`) sampled over time; time per engine phase
+  (presolve, LU factorization, FTRAN/BTRAN, pricing, …) and structural sizes
+  (LU fill, nnz(L)).
+- **Compare runs**: any finished runs side by side (engines, CPU vs GPU,
+  presolve on/off, …).
+- **Scaling study**: generates a model family (transportation LP, refinery
+  LP/MILP/QP) at growing sizes, solves each, and fits time ∝ nnz^k and
+  memory ∝ nnz^k on log–log axes — the empirical time and space complexity
+  on this machine.
+
+Everything runs on the local machine's CPU and GPU; the browser only uploads
+files and displays results.
+
+The same outputs are available from the CLI: `--json=<file>`, `--sol=<file>`,
+`--csv=<prefix>` (see `include/report_io.hpp`).
+
 ## Tests and benchmarks
 
 ```

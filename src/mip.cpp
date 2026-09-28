@@ -1,5 +1,6 @@
 #include "mip.hpp"
 #include "simplex.hpp"
+#include "mip_probe.hpp"
 #include <cmath>
 #include <algorithm>
 #include <atomic>
@@ -70,6 +71,11 @@ struct Shared {
     double pc_avg_sum[2] = {0, 0};                    // running totals for the unobserved-variable default
     int pc_avg_n[2] = {0, 0};
 
+    // Root reasoning shared by all workers: probing implications and the
+    // clique table (separated at the root cut loop).
+    std::vector<Implication> impl;
+    CliqueTable cliques;
+
     std::atomic<long long> nodes{0}, lp_iterations{0};
     std::atomic<int> heuristic_solutions{0};
     MipResult res;
@@ -111,7 +117,9 @@ private:
     std::vector<int> applied_;             // columns whose bounds differ from the root in spx_
 
     double elapsed() const { return S.elapsed(); }
-    bool out_of_time() const { return elapsed() > opt_.time_limit; }
+    // heur_deadline_: while a root heuristic runs, its own time box.
+    double heur_deadline_ = kInf;
+    bool out_of_time() const { double e = elapsed(); return e > opt_.time_limit || e > heur_deadline_; }
     double inc_obj() const { return S.inc_obj.load(); }
 
     std::string solve_lp(int max_iterations = -1, bool perturb = false) {
@@ -186,6 +194,8 @@ private:
     int gmi_cuts(std::vector<DualSimplex::Row>& out, int max_cuts);
     int cover_cuts(std::vector<DualSimplex::Row>& out);
     int mir_cuts(std::vector<DualSimplex::Row>& out);
+    int implied_bound_cuts(std::vector<DualSimplex::Row>& out, int max_cuts);
+    bool probe_root();
     bool finish_cut(std::vector<double>& g, double R, DualSimplex::Row& row) const;
     void root_cuts();
 
@@ -373,138 +383,225 @@ int BranchAndCut::cover_cuts(std::vector<DualSimplex::Row>& out) {
     return made;
 }
 
-// Complemented mixed-integer rounding (c-MIR, Marchand & Wolsey) on single
-// rows. For each side a^T x <= b: substitute every variable by its nearer
-// bound (x = l + t or x = u - t, t >= 0), drop continuous terms with a
-// positive coefficient (valid: they are >= 0), then for a few divisors delta
-// apply the MIR formula
+// Complemented mixed-integer rounding (c-MIR, Marchand & Wolsey) with row
+// aggregation. A base inequality sum a_j x_j <= b is built from up to
+// kMaxAggr + 1 rows: starting from a near-binding row, the continuous
+// variable farthest from its bounds is eliminated by adding a multiple of
+// another row that contains it (equalities either sign, inequalities only in
+// their valid direction). On fixed-charge network and lot-sizing models this
+// is what turns flow-balance rows into flow-cover / path-strength cuts.
+//
+// On each base inequality: substitute every variable by its nearer bound
+// (x = l + t, x = u - t, or x = u*y - t for a variable upper bound), drop
+// continuous terms with a positive coefficient (valid: they are >= 0), try a
+// few divisors delta in
 //   sum (floor(g_j/d) + max(0, f_j - f0)/(1 - f0)) z_j - s/(d (1 - f0)) <= floor(b/d)
 // and keep the most violated cut, mapped back to x.
 int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
+    constexpr int kMaxAggr = 5;
     int made = 0;
     std::vector<std::pair<int,double>> ent;
-    const int m = spx_.m();
+
+    // Rows of the current LP -- the model's and the cuts added so far (MIR on
+    // a cut gives a higher-rank cut) -- and the column -> rows incidence.
+    const int mrows = spx_.m();
+    struct RowData { std::vector<std::pair<int,double>> e; double lo, hi; };
+    std::vector<RowData> rows(mrows);
+    std::vector<std::vector<std::pair<int,double>>> col_rows(n_);
+    for (int i = 0; i < mrows; ++i) {
+        spx_.row_entries(i, rows[i].e);
+        rows[i].lo = spx_.row_lower(i); rows[i].hi = spx_.row_upper(i);
+        for (const auto& e : rows[i].e) col_rows[e.first].emplace_back(i, e.second);
+    }
+
     // Variable upper bounds x_j <= u * y_k (y binary), read off two-entry rows
     // a x + b y <= 0 (or >= 0). They let the MIR see fixed-charge structure:
     // substituting x = u y - t turns flow rows into flow-cover-strength cuts.
     std::vector<int> vub_y(n_, -1);
     std::vector<double> vub_u(n_, 0.0);
     for (int i = 0; i < m0_; ++i) {
-        spx_.row_entries(i, ent);
-        if (ent.size() != 2) continue;
+        const auto& E = rows[i].e;
+        if (E.size() != 2) continue;
         for (int side = 0; side < 2; ++side) {
-            double rhs = side == 0 ? spx_.row_upper(i) : -spx_.row_lower(i);
+            double rhs = side == 0 ? rows[i].hi : -rows[i].lo;
             if (!std::isfinite(rhs) || rhs != 0.0) continue;
             double sg = side == 0 ? 1.0 : -1.0;
             for (int k = 0; k < 2; ++k) {
-                int jx = ent[k].first, jy = ent[1 - k].first;
-                double ax = sg * ent[k].second, ay = sg * ent[1 - k].second;
+                int jx = E[k].first, jy = E[1 - k].first;
+                double ax = sg * E[k].second, ay = sg * E[1 - k].second;
                 if (is_int_[jx] || !is_int_[jy] || spx_.lower(jy) != 0.0 || spx_.upper(jy) != 1.0) continue;
                 if (ax > 0 && ay < 0 && spx_.lower(jx) >= 0.0) { vub_y[jx] = jy; vub_u[jx] = -ay / ax; }
             }
         }
     }
 
-    for (int i = 0; i < m; ++i) {
-        spx_.row_entries(i, ent);
-        if (ent.size() < 2) continue;
+    // Distance of a continuous variable from its nearest (variable) bound.
+    auto bound_dist = [&](int j) {
+        double lo = spx_.lower(j), hi = spx_.upper(j), xv = spx_.value(j);
+        double d = kInf;
+        if (std::isfinite(lo)) d = std::min(d, xv - lo);
+        if (std::isfinite(hi)) d = std::min(d, hi - xv);
+        if (vub_y[j] >= 0) d = std::min(d, vub_u[j] * spx_.value(vub_y[j]) - xv);
+        return d;
+    };
+
+    // c-MIR on one base inequality sum_{(j,a) in base} a x_j <= b.
+    // Returns true (and appends the cut) if a violated cut was found.
+    auto cmir = [&](const std::vector<std::pair<int,double>>& base, double b) -> bool {
+        struct CT { int j; double g; int kind; double tval; };
+        std::vector<CT> cont;
+        std::vector<std::pair<int,double>> gint;
+        auto add_int = [&](int j, double g) {
+            for (auto& p : gint) if (p.first == j) { p.second += g; return; }
+            gint.emplace_back(j, g);
+        };
+        double bb = b;
+        for (const auto& e : base) {
+            int j = e.first; double a = e.second;
+            if (is_int_[j]) { add_int(j, a); continue; }
+            double lo = spx_.lower(j), hi = spx_.upper(j), xv = spx_.value(j);
+            double s_lo = std::isfinite(lo) ? xv - lo : kInf, s_hi = std::isfinite(hi) ? hi - xv : kInf;
+            double s_vub = vub_y[j] >= 0 ? vub_u[j] * spx_.value(vub_y[j]) - xv : kInf;
+            if (std::isfinite(s_vub) && s_vub <= s_lo && s_vub <= s_hi) {
+                add_int(vub_y[j], a * vub_u[j]);
+                cont.push_back({j, -a, 2, std::max(s_vub, 0.0)});
+            } else if (std::isfinite(s_lo) && s_lo <= s_hi) {
+                bb -= a * lo; cont.push_back({j, a, 0, s_lo});
+            } else if (std::isfinite(s_hi)) {
+                bb -= a * hi; cont.push_back({j, -a, 1, s_hi});
+            } else return false;
+        }
+        if (gint.empty()) return false;
+        struct IT { int j; double g; bool comp; double tval; };
+        std::vector<IT> ints;
+        for (const auto& p : gint) {
+            int j = p.first; double g = p.second;
+            if (std::fabs(g) < 1e-12) continue;
+            double lo = spx_.lower(j), hi = spx_.upper(j), xv = spx_.value(j);
+            bool use_lo = std::isfinite(lo) && (!std::isfinite(hi) || xv - lo <= hi - xv);
+            if (!use_lo && !std::isfinite(hi)) return false;
+            if (use_lo) { bb -= g * lo; ints.push_back({j, g, false, xv - lo}); }
+            else        { bb -= g * hi; ints.push_back({j, -g, true, hi - xv}); }
+        }
+        if (ints.empty()) return false;
+
+        std::vector<double> deltas;
+        for (const auto& t : ints) if (t.tval > 1e-6 && std::fabs(t.g) > 1e-6) deltas.push_back(std::fabs(t.g));
+        std::sort(deltas.begin(), deltas.end());
+        deltas.erase(std::unique(deltas.begin(), deltas.end()), deltas.end());
+        if (deltas.size() > 8) deltas.resize(8);
+        if (deltas.empty()) return false;
+        size_t nd = deltas.size();
+        for (size_t k = 0; k < nd; ++k) for (double dv : {2.0, 4.0, 8.0}) deltas.push_back(deltas[k] / dv);
+
+        double best_viol = 1e-6, best_rhs = 0.0;
+        std::vector<double> best_pi, best_psi, pi(ints.size()), psi(cont.size());
+        for (double d : deltas) {
+            double beta = bb / d, f0 = beta - std::floor(beta);
+            if (f0 < 0.05 || f0 > 0.95) continue;
+            double lhs = 0.0, norm = 0.0;
+            for (size_t k = 0; k < ints.size(); ++k) {
+                double q = ints[k].g / d, fj = q - std::floor(q);
+                pi[k] = std::floor(q) + std::max(0.0, fj - f0) / (1.0 - f0);
+                lhs += pi[k] * ints[k].tval; norm += pi[k] * pi[k];
+            }
+            for (size_t k = 0; k < cont.size(); ++k) {
+                psi[k] = cont[k].g < 0 ? cont[k].g / (d * (1.0 - f0)) : 0.0;
+                lhs += psi[k] * cont[k].tval; norm += psi[k] * psi[k];
+            }
+            double viol = (lhs - std::floor(beta)) / std::sqrt(std::max(norm, 1e-12));
+            if (viol > best_viol) { best_viol = viol; best_pi = pi; best_psi = psi; best_rhs = std::floor(beta); }
+        }
+        if (best_pi.empty()) return false;
+        // back to x:  sum pi t_int + sum psi t_cont <= R
+        std::vector<double> g(n_, 0.0);
+        double R = best_rhs;
+        for (size_t k = 0; k < ints.size(); ++k) {
+            double p = best_pi[k]; if (p == 0.0) continue;
+            int j = ints[k].j;
+            if (!ints[k].comp) { g[j] += p; R += p * spx_.lower(j); }
+            else               { g[j] -= p; R -= p * spx_.upper(j); }
+        }
+        for (size_t k = 0; k < cont.size(); ++k) {
+            double p = best_psi[k]; if (p == 0.0) continue;
+            int j = cont[k].j;
+            if (cont[k].kind == 0)      { g[j] += p; R += p * spx_.lower(j); }
+            else if (cont[k].kind == 1) { g[j] -= p; R -= p * spx_.upper(j); }
+            else                        { g[j] -= p; g[vub_y[j]] += p * vub_u[j]; }
+        }
+        for (auto& v : g) v = -v;           // finish_cut takes g^T x >= R
+        DualSimplex::Row row;
+        if (!finish_cut(g, -R, row)) return false;
+        out.push_back(std::move(row));
+        return true;
+    };
+
+    std::vector<double> dense(n_, 0.0);
+    std::vector<int> touched;
+    std::vector<char> in_touched(n_, 0);
+    for (int i = 0; i < mrows; ++i) {
+        const auto& E = rows[i].e;
+        if (E.empty()) continue;
         for (int side = 0; side < 2; ++side) {
-            double b = side == 0 ? spx_.row_upper(i) : -spx_.row_lower(i);
+            double b = side == 0 ? rows[i].hi : -rows[i].lo;
             if (!std::isfinite(b)) continue;
             const double sg = side == 0 ? 1.0 : -1.0;
             double act = 0.0;
-            for (const auto& e : ent) act += sg * e.second * spx_.value(e.first);
+            for (const auto& e : E) act += sg * e.second * spx_.value(e.first);
             if (b - act > 0.1 * (1.0 + std::fabs(b))) continue;       // far from binding
 
-            // continuous terms after bound / VUB substitution; kind 0: t = x - l,
-            // 1: t = u - x, 2: t = u*y - x (VUB). Integer coefficients accumulate.
-            struct CT { int j; double g; int kind; double tval; };
-            std::vector<CT> cont;
-            std::vector<std::pair<int,double>> gint;
-            auto add_int = [&](int j, double g) {
-                for (auto& p : gint) if (p.first == j) { p.second += g; return; }
-                gint.emplace_back(j, g);
+            // aggregated row held densely over the touched columns
+            for (int j : touched) { dense[j] = 0.0; in_touched[j] = 0; }
+            touched.clear();
+            auto add_row = [&](int r, double mult) {
+                for (const auto& e : rows[r].e) {
+                    if (!in_touched[e.first]) { in_touched[e.first] = 1; touched.push_back(e.first); }
+                    dense[e.first] += mult * e.second;
+                }
             };
-            double bb = b;
-            bool ok = true;
-            for (const auto& e : ent) {
-                int j = e.first; double a = sg * e.second;
-                if (is_int_[j]) { add_int(j, a); continue; }
-                double lo = spx_.lower(j), hi = spx_.upper(j), xv = spx_.value(j);
-                double s_lo = std::isfinite(lo) ? xv - lo : kInf, s_hi = std::isfinite(hi) ? hi - xv : kInf;
-                double s_vub = vub_y[j] >= 0 ? vub_u[j] * spx_.value(vub_y[j]) - xv : kInf;
-                if (std::isfinite(s_vub) && s_vub <= s_lo && s_vub <= s_hi) {
-                    add_int(vub_y[j], a * vub_u[j]);
-                    cont.push_back({j, -a, 2, std::max(s_vub, 0.0)});
-                } else if (std::isfinite(s_lo) && s_lo <= s_hi) {
-                    bb -= a * lo; cont.push_back({j, a, 0, s_lo});
-                } else if (std::isfinite(s_hi)) {
-                    bb -= a * hi; cont.push_back({j, -a, 1, s_hi});
-                } else { ok = false; break; }
-            }
-            if (!ok || gint.empty()) continue;
-            struct IT { int j; double g; bool comp; double tval; };
-            std::vector<IT> ints;
-            for (const auto& p : gint) {
-                int j = p.first; double g = p.second;
-                if (g == 0.0) continue;
-                double lo = spx_.lower(j), hi = spx_.upper(j), xv = spx_.value(j);
-                bool use_lo = std::isfinite(lo) && (!std::isfinite(hi) || xv - lo <= hi - xv);
-                if (!use_lo && !std::isfinite(hi)) { ok = false; break; }
-                if (use_lo) { bb -= g * lo; ints.push_back({j, g, false, xv - lo}); }
-                else        { bb -= g * hi; ints.push_back({j, -g, true, hi - xv}); }
-            }
-            if (!ok || ints.empty()) continue;
-
-            std::vector<double> deltas;
-            for (const auto& t : ints) if (t.tval > 1e-6 && std::fabs(t.g) > 1e-6) deltas.push_back(std::fabs(t.g));
-            std::sort(deltas.begin(), deltas.end());
-            deltas.erase(std::unique(deltas.begin(), deltas.end()), deltas.end());
-            if (deltas.size() > 8) deltas.resize(8);
-            if (deltas.empty()) continue;
-            size_t nd = deltas.size();
-            for (size_t k = 0; k < nd; ++k) for (double dv : {2.0, 4.0, 8.0}) deltas.push_back(deltas[k] / dv);
-
-            double best_viol = 1e-6, best_rhs = 0.0;
-            std::vector<double> best_pi, best_psi, pi(ints.size()), psi(cont.size());
-            for (double d : deltas) {
-                double beta = bb / d, f0 = beta - std::floor(beta);
-                if (f0 < 0.05 || f0 > 0.95) continue;
-                double lhs = 0.0, norm = 0.0;
-                for (size_t k = 0; k < ints.size(); ++k) {
-                    double q = ints[k].g / d, fj = q - std::floor(q);
-                    pi[k] = std::floor(q) + std::max(0.0, fj - f0) / (1.0 - f0);
-                    lhs += pi[k] * ints[k].tval; norm += pi[k] * pi[k];
+            add_row(i, sg);
+            std::vector<int> used{i};
+            for (int agg = 0; agg <= kMaxAggr; ++agg) {
+                std::vector<std::pair<int,double>> base;
+                double amax = 0.0;
+                for (int j : touched) amax = std::max(amax, std::fabs(dense[j]));
+                for (int j : touched) if (std::fabs(dense[j]) > 1e-9 * amax) base.emplace_back(j, dense[j]);
+                if (base.empty()) break;
+                if (cmir(base, b)) { ++made; break; }
+                if (agg == kMaxAggr) break;
+                // eliminate the continuous variable farthest from its bounds
+                int jc = -1; double best_d = 1e-6;
+                for (const auto& e : base) {
+                    if (is_int_[e.first]) continue;
+                    double d = bound_dist(e.first);
+                    if (d > best_d) { best_d = d; jc = e.first; }
                 }
-                for (size_t k = 0; k < cont.size(); ++k) {
-                    psi[k] = cont[k].g < 0 ? cont[k].g / (d * (1.0 - f0)) : 0.0;
-                    lhs += psi[k] * cont[k].tval; norm += psi[k] * psi[k];
+                if (jc < 0) break;
+                int rbest = -1; double mbest = 0.0, slack_best = kInf;
+                for (const auto& [r, arj] : col_rows[jc]) {
+                    if (std::find(used.begin(), used.end(), r) != used.end()) continue;
+                    double mult = -dense[jc] / arj;
+                    const bool eq = rows[r].lo == rows[r].hi;
+                    double rb;
+                    if (eq) rb = rows[r].hi;
+                    else if (mult > 0 && std::isfinite(rows[r].hi)) rb = rows[r].hi;       // a_r x <= hi, scaled by mult > 0
+                    else if (mult < 0 && std::isfinite(rows[r].lo)) rb = rows[r].lo;       // a_r x >= lo, scaled by mult < 0
+                    else continue;
+                    double ract = 0.0;
+                    for (const auto& e : rows[r].e) ract += e.second * spx_.value(e.first);
+                    double slack = std::fabs(rb - ract) / (1.0 + std::fabs(rb));
+                    if (slack < slack_best) { slack_best = slack; rbest = r; mbest = mult; }
                 }
-                double viol = (lhs - std::floor(beta)) / std::sqrt(std::max(norm, 1e-12));
-                if (viol > best_viol) { best_viol = viol; best_pi = pi; best_psi = psi; best_rhs = std::floor(beta); }
+                if (rbest < 0) break;
+                const bool eq = rows[rbest].lo == rows[rbest].hi;
+                b += mbest * (eq ? rows[rbest].hi : (mbest > 0 ? rows[rbest].hi : rows[rbest].lo));
+                add_row(rbest, mbest);
+                dense[jc] = 0.0;
+                used.push_back(rbest);
             }
-            if (best_pi.empty()) continue;
-            // back to x:  sum pi t_int + sum psi t_cont <= R
-            std::vector<double> g(n_, 0.0);
-            double R = best_rhs;
-            for (size_t k = 0; k < ints.size(); ++k) {
-                double p = best_pi[k]; if (p == 0.0) continue;
-                int j = ints[k].j;
-                if (!ints[k].comp) { g[j] += p; R += p * spx_.lower(j); }
-                else               { g[j] -= p; R -= p * spx_.upper(j); }
-            }
-            for (size_t k = 0; k < cont.size(); ++k) {
-                double p = best_psi[k]; if (p == 0.0) continue;
-                int j = cont[k].j;
-                if (cont[k].kind == 0)      { g[j] += p; R += p * spx_.lower(j); }
-                else if (cont[k].kind == 1) { g[j] -= p; R -= p * spx_.upper(j); }
-                else                        { g[j] -= p; g[vub_y[j]] += p * vub_u[j]; }
-            }
-            for (auto& v : g) v = -v;           // finish_cut takes g^T x >= R
-            DualSimplex::Row row;
-            if (finish_cut(g, -R, row)) { out.push_back(std::move(row)); ++made; }
         }
     }
+    for (int j : touched) dense[j] = 0.0;
     return made;
 }
 
@@ -521,6 +618,11 @@ void BranchAndCut::root_cuts() {
         gmi_cuts(cuts, 100);
         cover_cuts(cuts);
         mir_cuts(cuts);
+        {
+            std::vector<double> x = spx_.primal();
+            S.cliques.separate(x, cuts, 100);
+        }
+        implied_bound_cuts(cuts, 200);
         if (cuts.empty()) break;
         // parallelism filter: keep a cut only if it is not nearly parallel to one kept
         std::vector<DualSimplex::Row> kept;
@@ -654,6 +756,7 @@ void BranchAndCut::rins(long long node_budget, bool rens) {
     o.node_limit = node_budget;
     o.cut_rounds = 5;
     o.time_limit = std::min(std::max(1.0, opt_.time_limit - elapsed()), 0.1 * opt_.time_limit + 1.0);
+    o.time_limit = std::min(o.time_limit, std::max(0.2, heur_deadline_ - elapsed()));
     MipResult r = solve_mip(sub, o);
     if (rens && r.status == "infeasible") {
         // Too tight: keep only the variables integral at a non-lower value fixed
@@ -767,7 +870,72 @@ int BranchAndCut::select_branch(const std::vector<int>& frac, double lp_obj, boo
 
 // ====================================================================== root
 
+// Probing on the binaries (MILP presolve): global fixings and tightenings go
+// into the root bounds of every worker; implications feed the clique table
+// and the implied-bound cuts.
+bool BranchAndCut::probe_root() {
+    std::vector<double> lo = S.root_lo, hi = S.root_hi;
+    const double budget = std::min(5.0, 0.05 * opt_.time_limit);
+    ProbeResult pr = probe(S.lp, is_int_, lo, hi, budget);
+    if (pr.infeasible) { S.res.status = "infeasible"; return false; }
+    int changed = 0;
+    for (int j = 0; j < n_; ++j)
+        if (lo[j] != S.root_lo[j] || hi[j] != S.root_hi[j]) {
+            S.root_lo[j] = lo[j]; S.root_hi[j] = hi[j];
+            spx_.set_col_bounds(j, lo[j], hi[j]);
+            ++changed;
+        }
+    std::vector<char> binary(n_, 0);
+    for (int j = 0; j < n_; ++j) binary[j] = is_int_[j] && lo[j] >= 0.0 && hi[j] <= 1.0;
+    S.cliques.build_from_rows(S.lp, is_int_, lo, hi);
+    S.cliques.add_implications(pr.impl, binary);
+    S.impl = std::move(pr.impl);
+    if (opt_.verbose)
+        std::printf("  probing: %d binaries probed, %d fixed, %d bounds tightened (%d changed), %zu implications, %d cliques, %.2fs\n",
+                    pr.probed, pr.fixed, pr.tightened, changed, S.impl.size(), S.cliques.size(), elapsed());
+    return true;
+}
+
+// Implied-bound cuts from probing: x_b = v forces x_c <= beta (or >= beta),
+// written as one linear inequality in x_b and x_c, added when violated.
+int BranchAndCut::implied_bound_cuts(std::vector<DualSimplex::Row>& out, int max_cuts) {
+    std::vector<double> x = spx_.primal();
+    struct C { double viol; DualSimplex::Row row; };
+    std::vector<C> found;
+    for (const auto& im : S.impl) {
+        const int b = im.bin, c = im.col;
+        if (is_int_[c] && spx_.lower(c) >= 0.0 && spx_.upper(c) <= 1.0) continue;   // binaries: clique table
+        const double lo = spx_.lower(c), hi = spx_.upper(c), beta = im.bound;
+        DualSimplex::Row row;
+        double lhs, rhs;
+        if (im.upper) {
+            if (!std::isfinite(hi) || beta >= hi) continue;
+            const double d = hi - beta;
+            if (im.val == 1) { row.entries = {{c, 1.0}, {b, d}}; rhs = hi; }       // x_c + d x_b <= hi
+            else             { row.entries = {{c, 1.0}, {b, -d}}; rhs = beta; }    // x_c - d x_b <= beta
+            lhs = row.entries[0].second * x[c] + row.entries[1].second * x[b];
+            row.lo = -kInf; row.hi = rhs;
+            double viol = lhs - rhs;
+            if (viol > 1e-6 * (1.0 + std::fabs(rhs))) found.push_back({viol, std::move(row)});
+        } else {
+            if (!std::isfinite(lo) || beta <= lo) continue;
+            const double d = beta - lo;
+            if (im.val == 1) { row.entries = {{c, 1.0}, {b, -d}}; rhs = lo; }      // x_c - d x_b >= lo
+            else             { row.entries = {{c, 1.0}, {b, d}}; rhs = beta; }     // x_c + d x_b >= beta
+            lhs = row.entries[0].second * x[c] + row.entries[1].second * x[b];
+            row.lo = rhs; row.hi = kInf;
+            double viol = rhs - lhs;
+            if (viol > 1e-6 * (1.0 + std::fabs(rhs))) found.push_back({viol, std::move(row)});
+        }
+    }
+    std::sort(found.begin(), found.end(), [](const C& a, const C& b) { return a.viol > b.viol; });
+    int made = 0;
+    for (auto& f : found) { if (made >= max_cuts) break; out.push_back(std::move(f.row)); ++made; }
+    return made;
+}
+
 bool BranchAndCut::root() {
+    if (!probe_root()) return false;
     std::string st = solve_lp(-1, true);
     S.res.root_lp = spx_.objective();
     if (st == "infeasible") { S.res.status = "infeasible"; return false; }
@@ -782,11 +950,20 @@ bool BranchAndCut::root() {
     }
     S.res.root_after_cuts = spx_.objective();
     if (opt_.heuristics) {
-        rounding_heuristic();
-        if (opt_.rins) rins(500, true);                        // RENS
-        if (!std::isfinite(inc_obj())) feasibility_pump(100);
-        dive(n_);
-        if (opt_.rins && std::isfinite(inc_obj())) rins(500);
+        // Each root heuristic gets at most 5% of the time limit.
+        double th = elapsed();
+        heur_deadline_ = th + std::max(0.5, 0.05 * opt_.time_limit);
+        auto lap = [&](const char* what) {
+            if (opt_.verbose) std::printf("  heuristic %-8s %.2fs  incumbent %.10g\n", what, elapsed() - th, inc_obj());
+            th = elapsed();
+            heur_deadline_ = th + std::max(0.5, 0.05 * opt_.time_limit);
+        };
+        rounding_heuristic(); lap("rounding");
+        if (opt_.rins) { rins(500, true); lap("rens"); }
+        if (!std::isfinite(inc_obj())) { feasibility_pump(100); lap("pump"); }
+        dive(n_); lap("dive");
+        if (opt_.rins && std::isfinite(inc_obj())) { rins(500); lap("rins"); }
+        heur_deadline_ = kInf;
     }
     // The tree's first node re-solves the root LP: a dive leaves spx_ holding
     // the dive's last solution, not the root's.

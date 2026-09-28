@@ -72,10 +72,13 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
     for (int j = 0; j < m; ++j) ccnt[j] = (int)acol[j].size();
     Buckets cb, rb;
     cb.init(m, m); rb.init(m, m);
+    // Removed rows stay in the column lists until the column is next updated
+    // by an elimination (skipped via row_done), so a pivot with no multipliers
+    // -- e.g. every slack -- costs O(|pivot row|), not O(sum of its columns).
+    std::vector<char> col_done(m, 0), row_done(m, 0);
     for (int j = 0; j < m; ++j) cb.insert(j, ccnt[j]);
     for (int i = 0; i < m; ++i) rb.insert(i, rcnt[i]);
 
-    std::vector<char> col_done(m, 0), row_done(m, 0);
     std::vector<std::vector<std::pair<int,double>>> urow_slot(m);   // U row entries keyed by slot, per step
     std::vector<int> pos_in_row(m, -1), pos_in_col(m, -1);
     const double u = pivot_threshold;
@@ -87,12 +90,12 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
     auto col_max = [&](int j) {
         if (cmax_valid[j]) return cmax_cache[j];
         double mx = 0.0;
-        for (const auto& e : acol[j]) mx = std::max(mx, std::fabs(e.second));
+        for (const auto& e : acol[j]) if (!row_done[e.first]) mx = std::max(mx, std::fabs(e.second));
         cmax_cache[j] = mx; cmax_valid[j] = 1;
         return mx;
     };
     auto drop_singular_col = [&](int j) {
-        for (const auto& e : acol[j]) { rcnt[e.first]--; rb.move(e.first, rcnt[e.first]); }
+        for (const auto& e : acol[j]) if (!row_done[e.first]) { rcnt[e.first]--; rb.move(e.first, rcnt[e.first]); }
         acol[j].clear();
         cb.remove(j);
         col_done[j] = 1;
@@ -115,6 +118,7 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
                 if (cmax < singular_tol) { tiny_cols.push_back(j); continue; }
                 for (const auto& e : acol[j]) {
                     int i = e.first;
+                    if (row_done[i]) continue;
                     double v = std::fabs(e.second);
                     if (v < u * cmax) continue;
                     double cost = double(rcnt[i] - 1) * double(k - 1);
@@ -166,7 +170,7 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
         // Multipliers l_i = a_ic / pivot, straight from the column copy.
         Eta eta; eta.pivot_row = r;
         for (const auto& e : acol[c])
-            if (e.first != r) eta.entries.emplace_back(e.first, e.second / piv);
+            if (e.first != r && !row_done[e.first]) eta.entries.emplace_back(e.first, e.second / piv);
         std::vector<std::pair<int,double>>().swap(acol[c]);
         cb.remove(c); col_done[c] = 1;
 
@@ -193,8 +197,14 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
         for (const auto& pe : prow) {
             const int j = pe.first; const double a_rj = pe.second;
             auto& cj = acol[j];
-            for (size_t k = 0; k < cj.size(); ) {          // index the column, dropping row r in place
-                if (cj[k].first == r) { cj[k] = cj.back(); cj.pop_back(); continue; }
+            if (eta.entries.empty()) {                     // nothing to eliminate: row r just leaves column j
+                ccnt[j]--;
+                cb.move(j, ccnt[j]);
+                cmax_valid[j] = 0;
+                continue;
+            }
+            for (size_t k = 0; k < cj.size(); ) {          // index the column, dropping removed rows in place
+                if (row_done[cj[k].first]) { cj[k] = cj.back(); cj.pop_back(); continue; }
                 pos_in_col[cj[k].first] = (int)k; ++k;
             }
             for (const auto& me : eta.entries) {

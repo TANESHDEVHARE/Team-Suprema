@@ -13,7 +13,7 @@
 //   L_p = adj[p] U (union of L_e for e in elems[p]) \ {p}
 // and absorbs the elements of elems[p]. Degrees are AMD's approximate
 // external degree  |adj[i]| + |L_p \ i| + sum_{e != p} |L_e \ L_p|.
-std::vector<int> min_degree_order(const SymMatrix& K) {
+std::vector<int> min_degree_order(const SymMatrix& K, const std::atomic<bool>* cancel) {
     const int n = K.n;
     std::vector<std::vector<int>> adj(n), elems(n), evars(n);
     for (int j = 0; j < n; ++j)
@@ -34,6 +34,12 @@ std::vector<int> min_degree_order(const SymMatrix& K) {
     order.reserve(n);
     std::vector<int> L;
     for (int k = 0; k < n; ++k) {
+        if ((k & 255) == 0 && cancel && cancel->load(std::memory_order_relaxed)) {
+            // Cancelled: finish with the remaining nodes in index order (a
+            // valid permutation; the caller discards the factorization).
+            for (int i = 0; i < n; ++i) if (!eliminated[i]) order.push_back(i);
+            break;
+        }
         int p = -1;
         while (!pq.empty()) {
             auto [d, i] = pq.top(); pq.pop();
@@ -100,7 +106,8 @@ std::vector<int> min_degree_order(const SymMatrix& K) {
 
 void SparseLDL::analyze(const SymMatrix& K) {
     n_ = K.n;
-    perm_ = min_degree_order(K);
+    perm_ = min_degree_order(K, cancel_);
+    if (cancelled()) return;
     iperm_.assign(n_, 0);
     for (int k = 0; k < n_; ++k) iperm_[perm_[k]] = k;
 
@@ -183,6 +190,7 @@ int SparseLDL::factor(const SymMatrix& K, const std::vector<signed char>& sign, 
     std::vector<int> rel(n_, -1), head(ns, -1), next(ns, -1), ptr(ns, 0);
     std::vector<double> wk, tmp;
     for (int s = 0; s < ns; ++s) {
+        if ((s & 15) == 0 && cancelled()) return -1;
         const int f = sn_start_[s], l = sn_start_[s + 1], w = l - f;
         const int* R = sn_rows_.data() + sn_rowptr_[s];
         const int r = sn_rowptr_[s + 1] - sn_rowptr_[s], nr = w + r;

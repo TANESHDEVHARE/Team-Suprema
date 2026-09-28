@@ -4,6 +4,9 @@
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\alloc_stats.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\SIH 2026\trial-2\sovereign_cpp\CMakeLists.txt" />

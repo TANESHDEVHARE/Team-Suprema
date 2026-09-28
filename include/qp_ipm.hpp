@@ -18,6 +18,7 @@
 // z = Q x + c - A^T y (positive at lower bounds).
 #pragma once
 #include <string>
+#include <atomic>
 #include <vector>
 #include "ranged_lp.hpp"
 
@@ -26,6 +27,9 @@ struct IpmOptions {
     int max_iterations = 200;
     double time_limit = 1e30;
     int verbose = 0;
+    // Cooperative cancellation (concurrent LP portfolio): checked every
+    // iteration; when set, solve_ipm returns "stopped".
+    std::atomic<bool>* stop_flag = nullptr;
 };
 
 struct IpmResult {

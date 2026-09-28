@@ -1,2 +1,4 @@
 bench_data/
 bench_results/
+ui_runs/
+cli_runs/

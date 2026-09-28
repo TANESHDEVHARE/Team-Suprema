@@ -130,6 +130,41 @@ int main() {
         }
     }
 
+    // [6b] Certificates of non-optimality: a dual-infeasible start must be
+    // resolved into "unbounded" or "infeasible", never left ambiguous.
+    std::cout << "[6b] Dual simplex: unbounded and infeasible LPs\n";
+    {
+        SimplexOptions opt;
+        Solution u = solve_mps_simplex("sample_problems/tiny_unbounded.mps", opt, false);
+        check(u.status == "unbounded", "tiny_unbounded: " + u.status);
+        Solution u2 = solve_mps_simplex("sample_problems/tiny_unbounded.mps", opt, true);
+        check(u2.status == "unbounded", "tiny_unbounded (presolve on): " + u2.status);
+    }
+
+    // [6c] Concurrent LP portfolio: every engine alone must reach the same
+    // verified optimum, and the full race must too.
+    std::cout << "[6c] Concurrent portfolio: each engine alone, then all four\n";
+    {
+        struct Case { const char* file; double ref; };
+        const Case cases[] = { {"afiro", -464.75314286}, {"share1b", -76589.318579}, {"beaconfd", 33592.485807},
+                               {"israel", -896644.82186}, {"scagr7", -2331389.8243} };
+        const char* names[] = {"dual", "primal", "ipm", "pdlp"};
+        SimplexOptions opt;
+        opt.concurrent_min_nnz = 0;   // exercise the helpers even on small models
+        for (const auto& c : cases) {
+            for (unsigned e = 0; e < 5; ++e) {
+                unsigned mask = e < 4 ? (1u << e) : 0xFu;
+                Solution s = solve_mps_concurrent(std::string("sample_problems/") + c.file + ".mps", opt, true, 1e-4, mask);
+                double rel = std::fabs(s.objective - c.ref) / std::max(1.0, std::fabs(c.ref));
+                check(s.status == "optimal" && rel < 1e-8 && s.eps_P < 1e-6 && s.eps_D < 1e-6,
+                      std::string(c.file) + " [" + (e < 4 ? names[e] : "all four") + "]: " + s.status +
+                      " (rel err " + std::to_string(rel) + ")");
+            }
+        }
+        Solution u = solve_mps_concurrent("sample_problems/tiny_unbounded.mps", opt);
+        check(u.status == "unbounded", "tiny_unbounded [all four]: " + u.status);
+    }
+
     // [7] Interior-point method on LPs (same sample set, IPM path) and on
     // convex QPs from the Maros-Meszaros set (published optima).
     std::cout << "[7] Interior point: LP samples + Maros-Meszaros QPs\n";

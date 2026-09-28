@@ -14,6 +14,7 @@
 //              sign * max(|d|, reg) -- dynamic regularization that enforces
 //              the target inertia (QP Step 6.1-6.2) -- and counted.
 #pragma once
+#include <atomic>
 #include <vector>
 
 struct SymMatrix {                 // lower triangle (i >= j) in CSC, n x n
@@ -27,6 +28,11 @@ public:
     // Pattern of K (lower triangle, CSC). Computes the ordering and the
     // symbolic factorization; call once per pattern.
     void analyze(const SymMatrix& K);
+    // Cooperative cancellation (concurrent LP portfolio): when *cancel turns
+    // true, analyze() and factor() stop early and cancelled() reports it; the
+    // factorization is then unusable.
+    void set_cancel(const std::atomic<bool>* cancel) { cancel_ = cancel; }
+    bool cancelled() const { return cancel_ && cancel_->load(std::memory_order_relaxed); }
     // Numeric factorization. sign[i] = -1 or +1 is the expected sign of
     // pivot i (original numbering). Returns the number of regularized pivots.
     int factor(const SymMatrix& K, const std::vector<signed char>& sign, double reg);
@@ -41,6 +47,7 @@ public:
 private:
     int n_ = 0;
     long long nnzL_ = 0;
+    const std::atomic<bool>* cancel_ = nullptr;
     std::vector<int> perm_, iperm_;          // perm_[k] = original index of the k-th pivot
     std::vector<int> parent_;                // elimination tree (permuted)
     std::vector<double> D_;
@@ -57,4 +64,4 @@ private:
 };
 
 // Minimum-degree ordering of the symmetric pattern (lower triangle CSC).
-std::vector<int> min_degree_order(const SymMatrix& K);
+std::vector<int> min_degree_order(const SymMatrix& K, const std::atomic<bool>* cancel = nullptr);

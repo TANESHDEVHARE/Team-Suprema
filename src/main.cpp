@@ -1,6 +1,8 @@
 // main.cpp -- the CLI:
 //   ./sovereign_solve problem.mps [time_limit]                      (auto: MILP -> branch-and-cut,
-//                                                                     QP -> interior point, LP -> dual simplex)
+//                                                                     QP -> interior point, LP -> concurrent portfolio)
+//   ./sovereign_solve --concurrent problem.mps [time_limit_seconds]  (dual + primal simplex, IPM+crossover,
+//                                                                     PDLP(GPU)+crossover; first verified answer wins)
 //   ./sovereign_solve --pdlp problem.mps [tol] [max_iterations]     (PDLP only, CPU/GPU race)
 //   ./sovereign_solve --simplex problem.mps [time_limit_seconds]     (dual simplex)
 //   ./sovereign_solve --crossover problem.mps [time_limit_seconds]   (PDLP -> crossover -> simplex)
@@ -16,6 +18,9 @@
 #include "mip.hpp"
 #include "qp_ipm.hpp"
 #include "mps_reader.hpp"
+#include "report_io.hpp"
+#include "alloc_stats.hpp"
+#include <cstdio>
 #include <cmath>
 #include <algorithm>
 #include <thread>
@@ -25,20 +30,39 @@ int main(int argc, char** argv) {
     bool use_simplex = false, use_presolve = true, stats_only = false, use_crossover = false, use_mip = false;
     MipOptions mopt;
     mopt.threads = std::max(1u, std::min(8u, std::thread::hardware_concurrency()));   // --threads overrides
-    bool use_ipm = false, use_race = false, use_pdlp = false;
+    bool use_ipm = false, use_race = false, use_pdlp = false, use_concurrent = false;
+    unsigned engines = 0xFu;
     double pdlp_tol = 1e-4;
     int verbose = 0;
+    std::string check_file;            // --check=<solution.txt>: verify an external solution
+    std::string json_file, sol_file, csv_prefix;   // machine-readable outputs (include/report_io.hpp)
     SimplexOptions sflags;             // robustness switches for ablation runs
     for (int k = 1; k < argc; ++k) {
         std::string a = argv[k];
         if (a == "--simplex") use_simplex = true;
         else if (a == "--no-presolve") use_presolve = false;
         else if (a == "--stats") stats_only = true;
+        else if (a.rfind("--check=", 0) == 0) check_file = a.substr(8);
+        else if (a.rfind("--json=", 0) == 0) json_file = a.substr(7);
+        else if (a.rfind("--sol=", 0) == 0) sol_file = a.substr(6);
+        else if (a.rfind("--csv=", 0) == 0) csv_prefix = a.substr(6);
+        else if (a == "--live") std::setvbuf(stdout, nullptr, _IONBF, 0);   // log lines reach a pipe immediately (UI)
         else if (a == "--crossover") { use_simplex = true; use_crossover = true; }
         else if (a.rfind("--pdlp-tol=", 0) == 0) pdlp_tol = std::stod(a.substr(11));
         else if (a == "--mip") use_mip = true;
         else if (a == "--ipm") use_ipm = true;
         else if (a == "--auto") { use_simplex = true; use_race = true; }
+        else if (a == "--concurrent") { use_simplex = true; use_concurrent = true; }
+        else if (a.rfind("--engines=", 0) == 0) {   // e.g. --engines=dual,primal,ipm,pdlp
+            use_simplex = true; use_concurrent = true; engines = 0;
+            std::string list = a.substr(10) + ",";
+            for (size_t p0 = 0, p1; (p1 = list.find(',', p0)) != std::string::npos; p0 = p1 + 1) {
+                std::string e = list.substr(p0, p1 - p0);
+                if (e == "dual") engines |= 1u; else if (e == "primal") engines |= 2u;
+                else if (e == "ipm") engines |= 4u; else if (e == "pdlp") engines |= 8u;
+                else if (!e.empty()) { std::cerr << "unknown engine: " << e << "\n"; return 2; }
+            }
+        }
         else if (a == "--pdlp") use_pdlp = true;
         else if (a.rfind("--gap=", 0) == 0) mopt.rel_gap = std::stod(a.substr(6));
         else if (a.rfind("--threads=", 0) == 0) mopt.threads = std::stoi(a.substr(10));
@@ -50,6 +74,7 @@ int main(int argc, char** argv) {
         else if (a == "--no-perturb") sflags.perturb_costs = false;
         else if (a == "--no-bland") sflags.bland_fallback = false;
         else if (a == "--no-scaling") sflags.scaling = false;
+        else if (a.rfind("--refactor=", 0) == 0) sflags.refactor_frequency = std::stoi(a.substr(11));
         else if (a == "--textbook") {  // all simplex robustness features off
             sflags.steepest_edge = sflags.harris_bfrt = sflags.perturb_costs = sflags.bland_fallback = sflags.scaling = false;
         }
@@ -62,6 +87,7 @@ int main(int argc, char** argv) {
         std::cerr << "usage: " << argv[0] << " <problem.mps> [time_limit_seconds]   (engine chosen by problem type)\n"
                   << "       " << argv[0] << " --pdlp <problem.mps> [tol] [max_iterations]\n"
                   << "       " << argv[0] << " --auto <problem.mps> [time_limit_seconds]   (LP: simplex vs PDLP+crossover race)\n"
+                  << "       " << argv[0] << " --concurrent|--engines=dual,primal,ipm,pdlp <problem.mps> [time_limit_seconds]   (LP portfolio)\n"
                   << "       " << argv[0] << " --ipm <problem.mps|.qps> [time_limit_seconds]\n"
                   << "       " << argv[0] << " --simplex [--no-presolve] [--textbook | --no-dse --no-harris --no-perturb --no-bland --no-scaling] [-v|-vv] <problem.mps> [time_limit_seconds]\n"
                   << "       " << argv[0] << " --crossover [--pdlp-tol=1e-4] [-v] <problem.mps> [time_limit_seconds]\n"
@@ -88,6 +114,14 @@ int main(int argc, char** argv) {
                       << " ranges " << p.ranges.size() << " lo!=0 " << nlo << " finite_hi " << nhi << "\n";
             return 0;
         }
+        if (!check_file.empty()) {
+            Solution c = check_solution(path, check_file);
+            std::cout << std::setprecision(10) << "Problem:    " << path << "\nSolution:   " << check_file
+                      << "\nObjective:  " << c.objective << std::scientific
+                      << "\neps_P:      " << c.eps_P << "\neps_D:      " << c.eps_D << "\neps_G:      " << c.eps_G
+                      << "\nmax integrality violation: " << c.max_int_violation << "\n";
+            return 0;
+        }
         // No engine flag: pick by problem type. Integer markers -> branch-and-cut,
         // a quadratic objective -> interior point, a plain LP -> dual simplex. The old positional "[tol] [iters]" form
         // (and --pdlp) still select the PDLP-only path.
@@ -97,7 +131,7 @@ int main(int argc, char** argv) {
             for (char f : p.integer) has_int |= f != 0;
             if (has_int) use_mip = true;
             else if (p.Q.nnz() > 0) use_ipm = true;
-            else use_simplex = true;          // measured fastest on every LP tried (see README); --auto races PDLP
+            else { use_simplex = true; use_concurrent = true; }   // LP: concurrent portfolio (dual simplex first)
         }
         auto t0 = std::chrono::steady_clock::now();
         Solution sol;
@@ -114,7 +148,8 @@ int main(int argc, char** argv) {
             SimplexOptions opt = sflags;
             opt.verbose = verbose;
             if (args.size() > 1) opt.time_limit = std::stod(args[1]);
-            sol = solve_mps_simplex(path, opt, use_presolve, use_crossover, pdlp_tol, 200000, use_race);
+            sol = use_concurrent ? solve_mps_concurrent(path, opt, use_presolve, pdlp_tol, engines)
+                                 : solve_mps_simplex(path, opt, use_presolve, use_crossover, pdlp_tol, 200000, use_race);
         } else {
             double tol = args.size() > 1 ? std::stod(args[1]) : 1e-6;
             int max_iter = args.size() > 2 ? std::stoi(args[2]) : 500000; // see include/solve.hpp's comment on this default
@@ -155,6 +190,21 @@ int main(int argc, char** argv) {
         std::cout << "Time:       " << secs << " s\n";
         std::cout << "Read time:  " << last_read_seconds() << " s\n";
         std::cout << "Solve time: " << secs - last_read_seconds() << " s   (presolve + solve + postsolve + verification)\n";
+        if (!json_file.empty() || !sol_file.empty() || !csv_prefix.empty()) {
+            RunInfo info;
+            info.model_path = path;
+            info.total_seconds = secs;
+            info.read_seconds = last_read_seconds();
+            info.threads = use_mip ? mopt.threads : 1;
+            info.have_resources = true;
+            info.alloc = alloc_stats();       // before the writers allocate their own tables
+            info.proc = process_stats();
+            info.mode = use_mip ? "branch-and-cut" : use_ipm ? "interior point" : use_concurrent ? "concurrent LP portfolio"
+                      : use_race ? "simplex vs PDLP race" : use_crossover ? "PDLP + crossover" : use_simplex ? "dual simplex" : "PDLP";
+            if (!json_file.empty()) write_result_json(json_file, sol, info);
+            if (!sol_file.empty()) write_solution_file(sol_file, sol, info);
+            if (!csv_prefix.empty()) write_solution_csv(csv_prefix, sol, info);
+        }
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "sovereign_solve: error: " << e.what() << "\n";

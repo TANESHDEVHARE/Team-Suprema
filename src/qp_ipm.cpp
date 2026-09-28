@@ -96,9 +96,11 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
     std::vector<double> qdiag(n, 0.0);
     for (int k = 0; k < lp.Q.nnz(); ++k) if (lp.Q.row_idx[k] == lp.Q.col_idx[k]) qdiag[lp.Q.row_idx[k]] += lp.Q.val[k];
     SparseLDL ldl;
+    ldl.set_cancel(opt.stop_flag);
     {
         double ta = now_s();
         ldl.analyze(K);
+        if (ldl.cancelled()) { res.status = "stopped"; return res; }
         if (opt.verbose)
             std::printf("  ipm: n %d m %d  nnz(K) %zu  nnz(L) %lld  analyze %.3fs\n",
                         n, m, K.rowidx.size(), ldl.nnz_L(), now_s() - ta);
@@ -208,6 +210,7 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
         for (int p = 0; p < (int)apos.size(); ++p) K.val[apos[p]] = AT.data[p];
         for (int i = 0; i < m; ++i) K.val[dpos[n + i]] = eq[i] ? 1e-8 : 1.0;
         ldl.factor(K, sign, 1e-13);
+        if (ldl.cancelled()) { res.status = "stopped"; return res; }
         std::vector<double> r0(N);
         for (int j = 0; j < n; ++j) r0[j] = c[j];
         for (int i = 0; i < m; ++i) {
@@ -406,6 +409,7 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
         }
         if (it >= opt.max_iterations) { res.status = "iteration_limit"; break; }
         if (now_s() - t0 > opt.time_limit) { res.status = "time_limit"; break; }
+        if (opt.stop_flag && opt.stop_flag->load(std::memory_order_relaxed)) { res.status = "stopped"; break; }
         // divergence monitor (QP Step 5.4): exploding iterates with collapsing steps
         if (inf_norm(x) > 1e12 || inf_norm(lam) > 1e12 || bad_steps >= 8) { res.status = "infeasible_or_unbounded"; break; }
 
@@ -423,6 +427,7 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
             K.val[dpos[n + i]] = 1.0 / Dw[i] + dd;
         }
         int nreg = ldl.factor(K, sign, 1e-10);
+        if (ldl.cancelled()) { res.status = "stopped"; break; }
         res.regularized_pivots += nreg;
         last_nreg = nreg;
 

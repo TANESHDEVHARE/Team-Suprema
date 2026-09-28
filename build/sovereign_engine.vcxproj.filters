@@ -25,6 +25,12 @@
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\mip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\mip_probe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\report_io.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\sparse_ldl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

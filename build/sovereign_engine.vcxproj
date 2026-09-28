@@ -386,6 +386,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\basis_lu.cpp" />
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\simplex.cpp" />
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\mip.cpp" />
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\mip_probe.cpp" />
+    <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\report_io.cpp" />
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\sparse_ldl.cpp" />
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\qp_ipm.cpp" />
     <ClCompile Include="D:\SIH 2026\trial-2\sovereign_cpp\src\solve.cpp" />
