@@ -226,38 +226,38 @@ flowchart TD
 ```mermaid
 flowchart TD
     %% Input
-    IN["📄 **MODEL FILE**\nMPS / QPS"]
+    IN["MODEL FILE\nMPS / QPS"]
     
     %% Preprocessing (shared)
-    PRE["🔧 **PREPROCESS**\nRead → Presolve → Scale"]
+    PRE["PREPROCESS\nRead -> Presolve -> Scale"]
     
     %% Problem type dispatch
     TYPE{"Problem\nType?"}
     
     %% LP Path (portfolio)
-    LP["🏃 **LP PORTFOLIO**\n4 engines race in parallel\nFirst VERIFIED wins"]
-    LP1["⚙️ Dual Simplex"]
-    LP2["📈 Primal Simplex"]
-    LP3["🔬 IPM + Crossover"]
-    LP4["⚡ PDLP + Crossover"]
+    LP["LP PORTFOLIO\n4 engines race in parallel\nFirst VERIFIED wins"]
+    LP1["Dual Simplex"]
+    LP2["Primal Simplex"]
+    LP3["IPM + Crossover"]
+    LP4["PDLP + Crossover"]
     
     %% MILP Path
-    MILP["🌳 **MILP BRANCH-AND-CUT**\nRoot: Probe → Cuts → Tree\nParallel · Heuristics"]
+    MILP["MILP BRANCH-AND-CUT\nRoot: Probe -> Cuts -> Tree\nParallel . Heuristics"]
     
     %% QP Path
-    QP["📐 **QP INTERIOR POINT**\nMehrotra + Gondzio\nAMD LDLᵀ · Inertia control"]
+    QP["QP INTERIOR POINT\nMehrotra + Gondzio\nAMD LDL^T . Inertia control"]
     
     %% Convergence
-    CONVERGE["🎯 **BEST VERIFIED ANSWER**\nConcurrent: first certified wins\nMILP/QP: single path"]
+    CONVERGE["BEST VERIFIED ANSWER\nConcurrent: first certified wins\nMILP/QP: single path"]
     
     %% Postprocessing
-    POST["🔁 **POSTSOLVE**\nUnscale → Undo presolve (LIFO)"]
+    POST["POSTSOLVE\nUnscale -> Undo presolve (LIFO)"]
     
     %% Verification
-    VERIFY["✅ **INDEPENDENT KKT VERIFIER**\nOriginal unscaled problem\nPrimal · Dual · Gap residuals"]
+    VERIFY["INDEPENDENT KKT VERIFIER\nOriginal unscaled problem\nPrimal . Dual . Gap residuals"]
     
     %% Output
-    OUT["📊 **CERTIFIED RESULT**\noptimal / near_optimal / inaccurate /\ninfeasible / unbounded / time_limit"]
+    OUT["CERTIFIED RESULT\noptimal / near_optimal / inaccurate /\ninfeasible / unbounded / time_limit"]
     
     %% Flow
     IN --> PRE
