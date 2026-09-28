@@ -17,6 +17,23 @@
  
 ---
 
+## UVP Visual
+
+```mermaid
+flowchart LR
+    A["🆓 **FREE**\nZero license\nNo per-core fees\nMIT licensed"] 
+    B["🏁 **RACE TO TRUTH**\n4 engines compete\nFirst verified wins\nNo false optima"]
+    C["⚡ **GPU NATIVE**\nHand-written CUDA\n6× faster at scale\nNo vendor libs"]
+    D["🏛️ **SOVEREIGN CORE**\nOwn LU, LDLᵀ, AMD\nZero dependencies\nFull control"]
+    
+    style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style B fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style C fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style D fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+```
+
+---
+
 A from-scratch mathematical optimization engine for **LP, MILP and convex QP**, written in C++17 (plus CUDA for the GPU path). No third-party solver or linear-algebra library is used anywhere in the solve path: the sparse LU, the sparse LDLᵀ, the orderings, the simplex, the interior-point method, the PDLP engine and every branch-and-cut component are implemented here from the published mathematics. The design follows the pipeline documents in `Math/` (with the corrections recorded in `Math/PIPELINE_NOTES.md`).
 
 Every answer is checked by an **independent verifier** (`src/verify.cpp`) against the original, unscaled, unpresolved problem, and the reported status follows that verifier — not the engine's own view.
