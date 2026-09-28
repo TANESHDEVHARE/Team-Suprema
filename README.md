@@ -221,45 +221,75 @@ flowchart TD
 
 ---
 
-## Solution Flow: From Model to Verified Answer
+## Solver Working: Minimal Schematic
 
 ```mermaid
 flowchart TD
-    A["📄 Model File\n(MPS / QPS)"] --> B["📖 Read & Parse\n(free/fixed format, Q matrix,\ninteger markers, RANGES)"]
-    B --> C["🔧 Presolve\n(remove empty/redundant rows,\nfix variables, substitute,\nround integer bounds)"]
-    C --> D["⚖️ Scale\n(Ruiz + Pock-Chambolle,\ninteger cols never scaled)"]
-    D --> E{"Problem\nType?"}
+    %% Input
+    IN["📄 **MODEL FILE**\nMPS / QPS"]
     
-    E -->|LP| F["🏃 LP Engines\n(race / portfolio)"]
-    E -->|MILP| G["🌳 Branch-and-Cut"]
-    E -->|QP| H["📐 Interior Point"]
+    %% Preprocessing (shared)
+    PRE["🔧 **PREPROCESS**\nRead → Presolve → Scale"]
     
-    F --> F1["Dual Simplex\n(Markowitz LU, steepest edge,\ncost perturbation, Bland fallback)"]
-    F --> F2["Primal Simplex\n(sum-infeas phase 1, Devex)"]
-    F --> F3["IPM + Crossover\n(Mehrotra+Gondzio, LDLᵀ)"]
-    F --> F4["PDLP + Crossover\n(restarted PDHG, adaptive steps\nCPU + GPU kernels)"]
-    F1 --> I
-    F2 --> I
-    F3 --> I
-    F4 --> I
+    %% Problem type dispatch
+    TYPE{"Problem\nType?"}
     
-    G --> G1["Root: Probe binaries\n(propagate, fix, imply,\nbuild clique table)"]
-    G1 --> G2["Root Cuts\n(GMI, c-MIR multi-row,\nVUB, cover, clique)"]
-    G2 --> G3["Tree Search\n(reliability branch,\nbest-bound + plunge,\nparallel, warm-start LP)"]
-    G3 --> G4["Heuristics\n(round, pump, RINS,\nRENS, dive, fix-prop)"]
-    G4 --> I
+    %% LP Path (portfolio)
+    LP["🏃 **LP PORTFOLIO**\n4 engines race in parallel\nFirst VERIFIED wins"]
+    LP1["⚙️ Dual Simplex"]
+    LP2["📈 Primal Simplex"]
+    LP3["🔬 IPM + Crossover"]
+    LP4["⚡ PDLP + Crossover"]
     
-    H --> H1["Quasidefinite System\n[-(Q+Dx) Aᵀ; A Dw]\nMehrotra + Gondzio\nAMD LDLᵀ, inertia ctrl"]
-    H1 --> I
+    %% MILP Path
+    MILP["🌳 **MILP BRANCH-AND-CUT**\nRoot: Probe → Cuts → Tree\nParallel · Heuristics"]
     
-    I["🔁 Postsolve\n(unscale, undo presolve LIFO)"]
-    I --> J["✅ Independent KKT Verifier\n(original unscaled problem)"]
-    J --> K["📊 Certified Result\noptimal / near_optimal /\ninaccurate / infeasible /\nunbounded / time_limit"]
+    %% QP Path
+    QP["📐 **QP INTERIOR POINT**\nMehrotra + Gondzio\nAMD LDLᵀ · Inertia control"]
     
-    style A fill:#e8f5e9,stroke:#2e7d32
-    style J fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style K fill:#fff3e0,stroke:#ef6c00
-    style E fill:#f3e5f5,stroke:#7b1fa2
+    %% Convergence
+    CONVERGE["🎯 **BEST VERIFIED ANSWER**\nConcurrent: first certified wins\nMILP/QP: single path"]
+    
+    %% Postprocessing
+    POST["🔁 **POSTSOLVE**\nUnscale → Undo presolve (LIFO)"]
+    
+    %% Verification
+    VERIFY["✅ **INDEPENDENT KKT VERIFIER**\nOriginal unscaled problem\nPrimal · Dual · Gap residuals"]
+    
+    %% Output
+    OUT["📊 **CERTIFIED RESULT**\noptimal / near_optimal / inaccurate /\ninfeasible / unbounded / time_limit"]
+    
+    %% Flow
+    IN --> PRE
+    PRE --> TYPE
+    TYPE -->|LP| LP
+    TYPE -->|MILP| MILP
+    TYPE -->|QP| QP
+    
+    LP --> LP1 & LP2 & LP3 & LP4
+    LP1 & LP2 & LP3 & LP4 --> CONVERGE
+    MILP --> CONVERGE
+    QP --> CONVERGE
+    
+    CONVERGE --> POST
+    POST --> VERIFY
+    VERIFY --> OUT
+    
+    %% Styling
+    classDef input fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef process fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef engine fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef verify fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef output fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef decision fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    
+    class IN input
+    class PRE,POST process
+    class LP,MILP,QP,CONVERGE engine
+    class LP1,LP2,LP3,LP4 engine
+    class VERIFY verify
+    class OUT output
+    class TYPE decision
 ```
 
 ---
