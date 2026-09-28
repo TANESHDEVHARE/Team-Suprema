@@ -14,6 +14,46 @@
 | **Independent verification** | Every solution checked on original unscaled problem — status follows verifier, not engine |
 | **Sovereign stack** | Own sparse LU, LDLᵀ, AMD ordering, SpMV — zero external solver/LA dependencies |
 | **Industrial MILP** | Probing, c-MIR multi-row, VUB/flow-cover, reliability branching, parallel tree, RINS/RENS/pump |
+ 
+---
+
+## UVP at a Glance
+
+```mermaid
+mindmap
+  root((🎯 UVP\nSovereign\nOptimization\nSolver))
+    🆓 Zero License
+      No recurring fees
+      No per-core/user limits
+      Run anywhere, any scale
+    🔍 Full Transparency
+      All algorithms in source
+      Math traced to papers
+      No black boxes
+    🔓 No Vendor Lock-in
+      MIT-style license
+      Modify/extend/embed freely
+    ⚡ GPU Acceleration
+      Hand-written CUDA kernels
+      6× speedup at 1M vars
+      No cuBLAS/cuSPARSE
+    🏁 Concurrent Portfolio
+      4 engines race
+      First VERIFIED wins
+      Easy LPs pay nothing
+    ✅ Independent Verification
+      Checks original problem
+      Status follows verifier
+      Not engine's view
+    🏛️ Sovereign Stack
+      Own LU, LDLᵀ, AMD, SpMV
+      Zero external deps
+      Full control
+    🏭 Industrial MILP
+      Probing, c-MIR, VUB
+      Reliability branching
+      Parallel tree, heuristics
+```
 
 ---
 
