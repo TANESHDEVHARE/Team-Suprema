@@ -134,6 +134,79 @@ flowchart TD
 
 ---
 
+## Software Architecture: Code Modules & Interfaces
+
+```mermaid
+flowchart TB
+    %% Entry Points
+    CLI["🖥️ CLI\n(main.cpp)"]
+    UI["🌐 Web UI\n(tools/ui_server.py)"]
+    PY["🐍 Python API\n(tools/sovereign.py)"]
+    
+    %% Core Solve Orchestration
+    CLI --> SOLVE["solve.cpp\n(orchestrates all engines)"]
+    UI --> SOLVE
+    PY --> SOLVE
+    
+    %% Shared Foundation (used by all engines)
+    SOLVE --> READ["mps_reader.cpp\n(MPS/QPS parser)"]
+    SOLVE --> PRESOLVE["presolve.cpp\n(presolve + postsolve)"]
+    SOLVE --> SCALE["scaling.cpp\n(Ruiz + Pock-Chambolle)"]
+    SOLVE --> VERIFY["verify.cpp\n(independent KKT checker)"]
+    SOLVE --> SPARSE["sparse.hpp / sparse.cpp\n(CSR/CSC, SpMV, matvec)"]
+    
+    %% LP Engines
+    SOLVE --> SIMPLEX["simplex.cpp + basis_lu.cpp\n(Dual/Primal Simplex\nMarkowitz LU, Forrest-Tomlin,\nsteepest edge, Harris, perturbation)"]
+    SOLVE --> PDLP_CPU["pdlp.cpp\n(PDLP CPU backend)"]
+    SOLVE --> PDLP_GPU["gpu/pdlp_gpu_solve.cu\n(PDLP GPU kernels\nwarp-per-row SpMV, fused updates)"]
+    SOLVE --> IPM["qp_ipm.cpp\n(Primal-Dual IPM\nMehrotra + Gondzio)"]
+    SOLVE --> LDL["sparse_ldl.cpp\n(Sparse LDLᵀ + AMD ordering)"]
+    
+    %% MILP Engine
+    SOLVE --> MIP["mip.cpp\n(Branch-and-Cut\ntree, cuts, branching, heuristics)"]
+    SOLVE --> MIP_PROBE["mip_probe.cpp\n(Probing, clique table,\nimplications)"]
+    
+    %% PDLP Shared Algorithm (single source)
+    PDLP_CPU --> PDLP_ALGO["include/pdlp_algo.hpp\n(PDLP algorithm template\ninstantiated for CPU + GPU)"]
+    PDLP_GPU --> PDLP_ALGO
+    
+    %% Reporting & Stats
+    SOLVE --> REPORT["report_io.cpp\n(JSON, CSV, .sol output)"]
+    SOLVE --> ALLOC["alloc_stats.cpp\n(counting allocator\nheap tracking)"]
+    
+    %% Testing
+    TEST_LU["test_lu.cpp\n(LU factorization tests)"]
+    TEST_LDL["test_ldl.cpp\n(LDLᵀ tests)"]
+    TEST_CHECKS["run_checks.cpp\n(end-to-end tests)"]
+    
+    SIMPLEX --> TEST_LU
+    LDL --> TEST_LDL
+    SOLVE --> TEST_CHECKS
+    
+    %% Styling
+    style CLI fill:#e3f2fd,stroke:#1565c0
+    style UI fill:#e3f2fd,stroke:#1565c0
+    style PY fill:#e3f2fd,stroke:#1565c0
+    style SOLVE fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style READ fill:#e8f5e9,stroke:#2e7d32
+    style PRESOLVE fill:#e8f5e9,stroke:#2e7d32
+    style SCALE fill:#e8f5e9,stroke:#2e7d32
+    style VERIFY fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style SPARSE fill:#e8f5e9,stroke:#2e7d32
+    style SIMPLEX fill:#fff3e0,stroke:#ef6c00
+    style PDLP_CPU fill:#fff3e0,stroke:#ef6c00
+    style PDLP_GPU fill:#fff3e0,stroke:#ef6c00
+    style IPM fill:#fff3e0,stroke:#ef6c00
+    style LDL fill:#fff3e0,stroke:#ef6c00
+    style MIP fill:#fff3e0,stroke:#ef6c00
+    style MIP_PROBE fill:#fff3e0,stroke:#ef6c00
+    style PDLP_ALGO fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style REPORT fill:#e8f5e9,stroke:#2e7d32
+    style ALLOC fill:#e8f5e9,stroke:#2e7d32
+```
+
+---
+
 ### Linear Programming (`Math/LP_Solver_Pipeline updated.pdf`)
 
 **1. Parsing & condition screening** (Step 1)  
