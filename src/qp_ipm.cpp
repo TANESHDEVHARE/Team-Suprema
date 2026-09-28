@@ -108,7 +108,8 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
     res.nnz_L = ldl.nnz_L();
     std::vector<signed char> sign(N, 1);
     for (int j = 0; j < n; ++j) sign[j] = -1;
-    const double dp = 1e-8, dd = 1e-8;        // primal/dual regularization (removed again by refinement)
+    double dp = 1e-8, dd = 1e-8;              // primal/dual regularization (removed again by refinement);
+                                              // raised when a Newton direction comes out non-finite
 
     // ---- starting point ----
     auto interior = [](double v, double lo, double hi, bool fl, bool fh) {
@@ -357,7 +358,7 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
     };
 
     std::vector<double> rcl(n), rcu(n), rcwl(m), rcwu(m);
-    int bad_steps = 0, last_nreg = 0, stall_its = 0;
+    int bad_steps = 0, last_nreg = 0, stall_its = 0, nan_retries = 0;
     double best_worst = kInf;
     for (int it = 0; ; ++it) {
         // ---- residuals ----
@@ -511,6 +512,20 @@ IpmResult solve_ipm(const RangedLP& lp, const IpmOptions& opt) {
         // (alpha_p Q dx - alpha_d (A'dlam + dz)), so it only shrinks when the
         // steps are equal. LP keeps separate primal and dual steps.
         if (lp.Q.nnz() > 0) ap = ad = std::min(ap, ad);
+        // Non-finite direction (breakdown in the factorization): never step
+        // with it. Keep the current iterate, raise the regularization and
+        // refactor; give up after a few tries with the last finite point.
+        {
+            bool finite = std::isfinite(ap) && std::isfinite(ad);
+            auto chk = [&](const std::vector<double>& v) { for (double t : v) if (!std::isfinite(t)) { finite = false; return; } };
+            if (finite) { chk(dx); chk(dlam); chk(dw); chk(dzl); chk(dzu); chk(dyl); chk(dyu); }
+            if (!finite) {
+                if (++nan_retries > 4) { res.status = "numerical_error"; break; }
+                dp *= 100.0; dd *= 100.0;
+                if (opt.verbose) std::printf("        non-finite direction: regularization raised to %.0e, refactoring\n", dp);
+                continue;
+            }
+        }
         bad_steps = (ap < 1e-8 && ad < 1e-8) ? bad_steps + 1 : 0;
         if (opt.verbose >= 2) {
             std::printf("        step primal %.3e dual %.3e  sigma %.2e  |dx| %.2e |dlam| %.2e  reg %d  solve res %.1e\n",

@@ -175,68 +175,22 @@ Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its 
 
 ```mermaid
 flowchart TD
-    %% Phase 1: Math & Design
-    M1["📐 **MATH & DESIGN**\nPipeline docs in `Math/`\nPaper-to-code mapping\n`PIPELINE_NOTES.md` for deviations"]
+    A["📐 **MATH & DESIGN**\nPapers → Pipeline docs\n`PIPELINE_NOTES.md`"]
+    B["🔢 **CORE LA**\nSparse LU, LDLᵀ, AMD\nCSR/CSC, SpMV"]
+    C["⚙️ **ENGINES**\nSimplex · IPM · PDLP\nMILP (Branch-and-Cut)"]
+    D["🔧 **INFRA**\nMPS/QPS · Presolve\nScaling · Verifier"]
+    E["🎭 **ORCHESTRATE**\nPortfolio · Race · UI\nCLI · Web · Python"]
+    F["✅ **VALIDATE**\nNetlib · MIPLIB · QP\nHiGHS + Verifier audit"]
     
-    %% Phase 2: Core LA
-    M2["🔢 **CORE LINEAR ALGEBRA**\n`sparse_ldl.cpp` — AMD + supernodal LDLᵀ\n`basis_lu.cpp` — Markowitz LU + Forrest-Tomlin\n`sparse.hpp` — CSR/CSC, SpMV, matvec"]
+    A --> B --> C --> D --> E --> F
     
-    %% Phase 3: Engines (parallel development)
-    M3A["⚙️ **SIMPLEX ENGINE**\n`simplex.cpp` — Dual/Primal\nPricing, ratio test, perturbation\nBland fallback, cleanup"]
-    M3B["📈 **IPM ENGINE**\n`qp_ipm.cpp` — Mehrotra + Gondzio\nQuasidefinite system\nInertia control, refinement"]
-    M3C["⚡ **PDLP ENGINE**\n`pdlp_algo.hpp` — Single algorithm\n`pdlp.cpp` — CPU backend\n`gpu/pdlp_gpu_solve.cu` — CUDA kernels"]
-    M3D["🌳 **MILP ENGINE**\n`mip.cpp` — Branch-and-cut\n`mip_probe.cpp` — Probing, cliques\nParallel root, tree, heuristics"]
-    
-    %% Phase 4: Infrastructure
-    M4["🔧 **INFRASTRUCTURE**\n`mps_reader.cpp` — Full MPS/QPS parser\n`presolve.cpp` — Reductions + postsolve\n`scaling.cpp` — Ruiz + Pock-Chambolle\n`verify.cpp` — Independent KKT checker\n`alloc_stats.cpp` — Counting allocator"]
-    
-    %% Phase 5: Orchestration & Interfaces
-    M5["🎭 **ORCHESTRATION & UI**\n`solve.cpp` — Portfolio, race, MILP, QP\n`main.cpp` — CLI\n`tools/ui_server.py` — Web UI\n`tools/sovereign.py` — Python API"]
-    
-    %% Phase 6: Validation
-    M6["✅ **VALIDATION**\n`run_checks.cpp` — Unit + integration\n`test_lu.cpp`, `test_ldl.cpp`\n`benchmark.py` — Netlib, MIPLIB, Maros-Mészáros\nHiGHS comparison + verifier audit"]
-    
-    %% Phase 7: Benchmarks & Docs
-    M7["📊 **BENCHMARKS & DOCS**\nPerformance reports\nScaling studies (`sovereign scale`)\nREADME with math references\n`PIPELINE_NOTES.md` corrections"]
-    
-    %% Connections
-    M1 --> M2
-    M2 --> M3A
-    M2 --> M3B
-    M2 --> M3C
-    M2 --> M3D
-    M3A --> M4
-    M3B --> M4
-    M3C --> M4
-    M3D --> M4
-    M4 --> M5
-    M4 --> M6
-    M5 --> M7
-    M6 --> M7
-    
-    %% Styling
-    classDef phase1 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    classDef phase2 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    classDef phase3 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    classDef phase4 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef phase5 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef phase6 fill:#e0f2f1,stroke:#00695c,stroke-width:2px
-    classDef phase7 fill:#fafafa,stroke:#757575,stroke-width:2px
-    
-    class M1 phase1
-    class M2 phase2
-    class M3A,M3B,M3C,M3D phase3
-    class M4 phase4
-    class M5 phase5
-    class M6 phase6
-    class M7 phase7
+    style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style B fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style C fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style D fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style E fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style F fill:#e0f2f1,stroke:#00695c,stroke-width:2px
 ```
-
----
-
-A from-scratch mathematical optimization engine for **LP, MILP and convex QP**, written in C++17 (plus CUDA for the GPU path). No third-party solver or linear-algebra library is used anywhere in the solve path: the sparse LU, the sparse LDLᵀ, the orderings, the simplex, the interior-point method, the PDLP engine and every branch-and-cut component are implemented here from the published mathematics. The design follows the pipeline documents in `Math/` (with the corrections recorded in `Math/PIPELINE_NOTES.md`).
-
-Every answer is checked by an **independent verifier** (`src/verify.cpp`) against the original, unscaled, unpresolved problem, and the reported status follows that verifier — not the engine's own view.
 
 ---
 
