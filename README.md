@@ -17,46 +17,6 @@
  
 ---
 
-## UVP at a Glance
-
-```mermaid
-mindmap
-  root((🎯 UVP\nSovereign\nOptimization\nSolver))
-    🆓 Zero License
-      No recurring fees
-      No per-core/user limits
-      Run anywhere, any scale
-    🔍 Full Transparency
-      All algorithms in source
-      Math traced to papers
-      No black boxes
-    🔓 No Vendor Lock-in
-      MIT-style license
-      Modify/extend/embed freely
-    ⚡ GPU Acceleration
-      Hand-written CUDA kernels
-      6× speedup at 1M vars
-      No cuBLAS/cuSPARSE
-    🏁 Concurrent Portfolio
-      4 engines race
-      First VERIFIED wins
-      Easy LPs pay nothing
-    ✅ Independent Verification
-      Checks original problem
-      Status follows verifier
-      Not engine's view
-    🏛️ Sovereign Stack
-      Own LU, LDLᵀ, AMD, SpMV
-      Zero external deps
-      Full control
-    🏭 Industrial MILP
-      Probing, c-MIR, VUB
-      Reliability branching
-      Parallel tree, heuristics
-```
-
----
-
 A from-scratch mathematical optimization engine for **LP, MILP and convex QP**, written in C++17 (plus CUDA for the GPU path). No third-party solver or linear-algebra library is used anywhere in the solve path: the sparse LU, the sparse LDLᵀ, the orderings, the simplex, the interior-point method, the PDLP engine and every branch-and-cut component are implemented here from the published mathematics. The design follows the pipeline documents in `Math/` (with the corrections recorded in `Math/PIPELINE_NOTES.md`).
 
 Every answer is checked by an **independent verifier** (`src/verify.cpp`) against the original, unscaled, unpresolved problem, and the reported status follows that verifier — not the engine's own view.
