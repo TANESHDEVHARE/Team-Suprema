@@ -1,5 +1,6 @@
 #include "alloc_stats.hpp"
 #include <atomic>
+#include <cstdio>
 #include <cstdlib>
 #include <new>
 
@@ -14,9 +15,22 @@
 
 namespace {
 std::atomic<long long> g_count{0}, g_bytes{0}, g_live{0}, g_peak{0};
+std::atomic<long long> g_limit{0};    // 0 = no limit
 constexpr std::size_t kHeader = 16;   // keeps malloc's 16-byte alignment
 
+// Past the heap limit the run ends at once with a clear status. An exception
+// would not do: it can be raised in any worker thread, where it terminates
+// the process without a word.
+[[noreturn]] void memory_limit_exit() noexcept {
+    static const char msg[] = "\nStatus:     memory_limit\n";
+    std::fwrite(msg, 1, sizeof msg - 1, stdout);
+    std::fflush(stdout);
+    std::_Exit(3);
+}
+
 void* counted_alloc(std::size_t n) noexcept {
+    const long long lim = g_limit.load(std::memory_order_relaxed);
+    if (lim > 0 && g_live.load(std::memory_order_relaxed) + (long long)n > lim) memory_limit_exit();
     void* p = std::malloc(n + kHeader);
     if (!p) return nullptr;
     *static_cast<std::size_t*>(p) = n;
@@ -50,6 +64,8 @@ void operator delete(void* p, std::size_t) noexcept { counted_free(p); }
 void operator delete[](void* p, std::size_t) noexcept { counted_free(p); }
 void operator delete(void* p, const std::nothrow_t&) noexcept { counted_free(p); }
 void operator delete[](void* p, const std::nothrow_t&) noexcept { counted_free(p); }
+
+void set_heap_limit(long long bytes) { g_limit.store(bytes > 0 ? bytes : 0); }
 
 AllocStats alloc_stats() {
     AllocStats s;

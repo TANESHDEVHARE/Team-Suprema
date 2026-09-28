@@ -47,6 +47,7 @@ int main(int argc, char** argv) {
         else if (a.rfind("--sol=", 0) == 0) sol_file = a.substr(6);
         else if (a.rfind("--csv=", 0) == 0) csv_prefix = a.substr(6);
         else if (a == "--live") std::setvbuf(stdout, nullptr, _IONBF, 0);   // log lines reach a pipe immediately (UI)
+        else if (a.rfind("--mem-limit=", 0) == 0) set_heap_limit((long long)(std::stod(a.substr(12)) * 1048576.0));   // MB
         else if (a == "--crossover") { use_simplex = true; use_crossover = true; }
         else if (a.rfind("--pdlp-tol=", 0) == 0) pdlp_tol = std::stod(a.substr(11));
         else if (a == "--mip") use_mip = true;

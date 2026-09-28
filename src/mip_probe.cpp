@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 #include <tuple>
+#include <mutex>
+#include <thread>
 
 namespace {
 constexpr double kInf = std::numeric_limits<double>::infinity();
@@ -33,7 +35,7 @@ Propagator::Propagator(const RangedLP& lp, const std::vector<char>& is_int)
 }
 
 bool Propagator::propagate(std::vector<double>& lo, std::vector<double>& hi, const std::vector<int>& seed,
-                           std::vector<std::tuple<int,double,double>>* log, long long work_limit) {
+                           std::vector<std::tuple<int,double,double>>* log, long long work_limit) const {
     std::vector<int> queue;
     std::vector<char> queued(m_, 0);
     auto push_col_rows = [&](int j) {
@@ -113,14 +115,22 @@ bool Propagator::propagate(std::vector<double>& lo, std::vector<double>& hi, con
 }
 
 // ================================================================ probing
+//
+// Candidates are handed out in chunks to `threads` workers. A worker copies
+// the current global bounds, probes its chunk against that snapshot (applying
+// its own deductions locally, so later probes in the chunk see them), then
+// merges every bound it tightened into the global bounds under a lock.
+// Sound in parallel: a deduction made from looser (older) bounds is still
+// valid once the global bounds are tighter. A final propagation over all
+// rows restores consistency. With threads = 1 the chunks run in order, so the
+// result is the same as the sequential pass.
 
 ProbeResult probe(const RangedLP& lp, const std::vector<char>& is_int, std::vector<double>& lo,
-                  std::vector<double>& hi, double seconds) {
+                  std::vector<double>& hi, double seconds, int threads) {
     ProbeResult res;
     const double t_end = now_s() + seconds;
     const int n = lp.n();
-    Propagator P(lp, is_int);
-    std::vector<std::tuple<int,double,double>> log;
+    const Propagator P(lp, is_int);
     if (!P.propagate(lo, hi, {}, nullptr)) { res.infeasible = true; return res; }
 
     std::vector<int> nnz(n, 0);
@@ -128,70 +138,115 @@ ProbeResult probe(const RangedLP& lp, const std::vector<char>& is_int, std::vect
     std::vector<int> cand;
     for (int j = 0; j < n; ++j)
         if (j < (int)is_int.size() && is_int[j] && lo[j] == 0.0 && hi[j] == 1.0) cand.push_back(j);
-    std::sort(cand.begin(), cand.end(), [&](int a, int b) { return nnz[a] > nnz[b]; });
+    std::sort(cand.begin(), cand.end(), [&](int a, int b) { return nnz[a] > nnz[b] || (nnz[a] == nnz[b] && a < b); });
 
-    std::vector<double> lo0, hi0, lo1, hi1;
-    std::vector<int> changed0, changed1;
-    for (int j : cand) {
-        if (now_s() > t_end) break;
-        if (lo[j] == hi[j]) continue;
-        ++res.probed;
-        // side v: run on the global bounds, remember the result, undo.
-        auto side = [&](int v, std::vector<int>& changed, std::vector<double>& slo, std::vector<double>& shi) {
-            log.clear();
-            log.emplace_back(j, lo[j], hi[j]);
-            lo[j] = hi[j] = v;
-            bool ok = P.propagate(lo, hi, {j}, &log, 200000);
-            changed.clear();
-            if (ok) {
-                std::vector<char> seen;
-                for (const auto& [k, a, b] : log) changed.push_back(k);
-                std::sort(changed.begin(), changed.end());
-                changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
-                slo.resize(changed.size()); shi.resize(changed.size());
-                for (size_t t = 0; t < changed.size(); ++t) { slo[t] = lo[changed[t]]; shi[t] = hi[changed[t]]; }
+    std::mutex mu;
+    size_t next = 0;
+    bool infeasible = false;
+    const size_t chunk = 16;
+
+    auto worker = [&]() {
+        std::vector<double> llo, lhi, slo, shi, lo0, hi0, lo1, hi1;
+        std::vector<int> changed0, changed1;
+        std::vector<std::tuple<int,double,double>> log;
+        std::vector<Implication> impl;
+        while (true) {
+            size_t b;
+            {
+                std::lock_guard<std::mutex> lk(mu);
+                if (infeasible || next >= cand.size() || now_s() > t_end) return;
+                b = next; next += chunk;
+                llo = lo; lhi = hi;                          // snapshot of the global bounds
             }
-            for (auto it = log.rbegin(); it != log.rend(); ++it) { lo[std::get<0>(*it)] = std::get<1>(*it); hi[std::get<0>(*it)] = std::get<2>(*it); }
-            return ok;
-        };
-        bool ok0 = side(0, changed0, lo0, hi0);
-        bool ok1 = side(1, changed1, lo1, hi1);
-        if (!ok0 && !ok1) { res.infeasible = true; return res; }
-        if (!ok0 || !ok1) {
-            // one side infeasible: the other side's bounds hold globally
-            const auto& ch = ok0 ? changed0 : changed1;
-            const auto& sl = ok0 ? lo0 : lo1;
-            const auto& sh = ok0 ? hi0 : hi1;
-            for (size_t t = 0; t < ch.size(); ++t) { lo[ch[t]] = sl[t]; hi[ch[t]] = sh[t]; }
-            ++res.fixed;
-            if (!P.propagate(lo, hi, ch, nullptr)) { res.infeasible = true; return res; }
-            continue;
-        }
-        // bounds implied by both sides hold globally
-        size_t a = 0, b = 0;
-        while (a < changed0.size() && b < changed1.size()) {
-            if (changed0[a] < changed1[b]) { ++a; continue; }
-            if (changed1[b] < changed0[a]) { ++b; continue; }
-            int k = changed0[a];
-            if (k != j) {
-                double nl = std::min(lo0[a], lo1[b]), nh = std::max(hi0[a], hi1[b]);
-                if (nl > lo[k] || nh < hi[k]) { lo[k] = std::max(lo[k], nl); hi[k] = std::min(hi[k], nh); ++res.tightened; }
+            slo = llo; shi = lhi;
+            impl.clear();
+            int probed = 0, fixed = 0, tightened = 0;
+            bool infeas = false;
+            for (size_t q = b; q < std::min(b + chunk, cand.size()); ++q) {
+                if (now_s() > t_end) break;
+                const int j = cand[q];
+                if (llo[j] == lhi[j]) continue;
+                ++probed;
+                // side v: propagate x_j = v on the local bounds, remember the result, undo
+                auto side = [&](int v, std::vector<int>& changed, std::vector<double>& sl, std::vector<double>& sh) {
+                    log.clear();
+                    log.emplace_back(j, llo[j], lhi[j]);
+                    llo[j] = lhi[j] = v;
+                    bool ok = P.propagate(llo, lhi, {j}, &log, 200000);
+                    changed.clear();
+                    if (ok) {
+                        for (const auto& e : log) changed.push_back(std::get<0>(e));
+                        std::sort(changed.begin(), changed.end());
+                        changed.erase(std::unique(changed.begin(), changed.end()), changed.end());
+                        sl.resize(changed.size()); sh.resize(changed.size());
+                        for (size_t t = 0; t < changed.size(); ++t) { sl[t] = llo[changed[t]]; sh[t] = lhi[changed[t]]; }
+                    }
+                    for (auto it = log.rbegin(); it != log.rend(); ++it) { llo[std::get<0>(*it)] = std::get<1>(*it); lhi[std::get<0>(*it)] = std::get<2>(*it); }
+                    return ok;
+                };
+                const bool ok0 = side(0, changed0, lo0, hi0);
+                const bool ok1 = side(1, changed1, lo1, hi1);
+                if (!ok0 && !ok1) { infeas = true; break; }
+                if (!ok0 || !ok1) {
+                    // one side infeasible: the other side's bounds hold
+                    const auto& ch = ok0 ? changed0 : changed1;
+                    const auto& sl = ok0 ? lo0 : lo1;
+                    const auto& sh = ok0 ? hi0 : hi1;
+                    for (size_t t = 0; t < ch.size(); ++t) { llo[ch[t]] = sl[t]; lhi[ch[t]] = sh[t]; }
+                    ++fixed;
+                    if (!P.propagate(llo, lhi, ch, nullptr)) { infeas = true; break; }
+                    continue;
+                }
+                // bounds implied by both sides hold
+                size_t a = 0, c = 0;
+                while (a < changed0.size() && c < changed1.size()) {
+                    if (changed0[a] < changed1[c]) { ++a; continue; }
+                    if (changed1[c] < changed0[a]) { ++c; continue; }
+                    const int k = changed0[a];
+                    if (k != j) {
+                        double nl = std::min(lo0[a], lo1[c]), nh = std::max(hi0[a], hi1[c]);
+                        if (nl > llo[k] || nh < lhi[k]) { llo[k] = std::max(llo[k], nl); lhi[k] = std::min(lhi[k], nh); ++tightened; }
+                    }
+                    ++a; ++c;
+                }
+                // implications beyond the local bounds
+                for (int v = 0; v < 2; ++v) {
+                    const auto& ch = v ? changed1 : changed0;
+                    const auto& sl = v ? lo1 : lo0;
+                    const auto& sh = v ? hi1 : hi0;
+                    for (size_t t = 0; t < ch.size(); ++t) {
+                        const int k = ch[t];
+                        if (k == j) continue;
+                        if (sh[t] < lhi[k] - 1e-9 * (1.0 + std::fabs(lhi[k]))) impl.push_back({j, v, k, true, sh[t]});
+                        if (sl[t] > llo[k] + 1e-9 * (1.0 + std::fabs(llo[k]))) impl.push_back({j, v, k, false, sl[t]});
+                    }
+                }
             }
-            ++a; ++b;
-        }
-        // implications beyond the global bounds
-        for (int v = 0; v < 2; ++v) {
-            const auto& ch = v ? changed1 : changed0;
-            const auto& sl = v ? lo1 : lo0;
-            const auto& sh = v ? hi1 : hi0;
-            for (size_t t = 0; t < ch.size() && res.impl.size() < 400000; ++t) {
-                int k = ch[t];
-                if (k == j) continue;
-                if (sh[t] < hi[k] - 1e-9 * (1.0 + std::fabs(hi[k]))) res.impl.push_back({j, v, k, true, sh[t]});
-                if (sl[t] > lo[k] + 1e-9 * (1.0 + std::fabs(lo[k]))) res.impl.push_back({j, v, k, false, sl[t]});
+            // merge into the global bounds
+            std::lock_guard<std::mutex> lk(mu);
+            res.probed += probed; res.fixed += fixed; res.tightened += tightened;
+            if (infeas) { infeasible = true; return; }
+            for (int k = 0; k < n; ++k) {
+                if (llo[k] > slo[k]) lo[k] = std::max(lo[k], llo[k]);
+                if (lhi[k] < shi[k]) hi[k] = std::min(hi[k], lhi[k]);
+                if (lo[k] > hi[k] + 1e-9 * (1.0 + std::fabs(lo[k]))) { infeasible = true; return; }
+                if (lo[k] > hi[k]) lo[k] = hi[k] = 0.5 * (lo[k] + hi[k]);
+            }
+            for (const auto& im : impl) {
+                if (res.impl.size() >= 400000) break;
+                res.impl.push_back(im);
             }
         }
+    };
+    const int T = std::max(1, threads);
+    if (T == 1) worker();
+    else {
+        std::vector<std::thread> th;
+        for (int t = 0; t < T; ++t) th.emplace_back(worker);
+        for (auto& x : th) x.join();
     }
+    if (infeasible) { res.infeasible = true; return res; }
+    if (!P.propagate(lo, hi, {}, nullptr)) res.infeasible = true;
     return res;
 }
 

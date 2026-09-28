@@ -33,6 +33,13 @@ double find_val(const std::vector<std::pair<int,double>>& row, int j) {
     return 0.0;
 }
 
+// Clear m lists but keep their capacity: a refactorization (every node of a
+// branch-and-bound tree does one) then reuses the memory of the last one.
+void reset_lists(std::vector<std::vector<std::pair<int,double>>>& v, int m) {
+    v.resize(m);
+    for (auto& x : v) x.clear();
+}
+
 void erase_key(std::vector<std::pair<int,double>>& v, int key) {
     for (size_t k = 0; k < v.size(); ++k) if (v[k].first == key) { v[k] = v.back(); v.pop_back(); return; }
 }
@@ -42,7 +49,7 @@ void erase_key(std::vector<std::pair<int,double>>& v, int key) {
 std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_col) {
     m_ = m;
     l_etas_.clear(); r_etas_.clear();
-    ucol_.assign(m, {}); urow_.assign(m, {});
+    reset_lists(ucol_, m); reset_lists(urow_, m);
     diag_.assign(m, 0.0);
     row_of_.assign(m, -1); slot_of_.assign(m, -1);
     t_of_row_.assign(m, -1); t_of_slot_.assign(m, -1);
@@ -51,7 +58,9 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
     // ---- active submatrix, stored twice with values (Suhl & Suhl): rows for
     // the elimination, columns so the pivot search never has to look a value
     // up by scanning a row. Elimination keeps both copies identical.
-    std::vector<std::vector<std::pair<int,double>>> arow(m), acol(m);
+    auto& arow = arow_buf_;
+    auto& acol = acol_buf_;
+    reset_lists(arow, m); reset_lists(acol, m);
     std::vector<int> rows; std::vector<double> vals;
     for (int s = 0; s < m; ++s) {
         get_col(s, rows, vals);
@@ -79,7 +88,8 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
     for (int j = 0; j < m; ++j) cb.insert(j, ccnt[j]);
     for (int i = 0; i < m; ++i) rb.insert(i, rcnt[i]);
 
-    std::vector<std::vector<std::pair<int,double>>> urow_slot(m);   // U row entries keyed by slot, per step
+    auto& urow_slot = uslot_buf_;                                   // U row entries keyed by slot, per step
+    reset_lists(urow_slot, m);
     std::vector<int> pos_in_row(m, -1), pos_in_col(m, -1);
     const double u = pivot_threshold;
 
@@ -164,14 +174,14 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
         for (const auto& e : arow[r])
             if (e.first != c && !col_done[e.first]) prow.push_back(e);
         urow_slot[step] = prow;
-        std::vector<std::pair<int,double>>().swap(arow[r]);
+        arow[r].clear();
         rb.remove(r); row_done[r] = 1;
 
         // Multipliers l_i = a_ic / pivot, straight from the column copy.
         Eta eta; eta.pivot_row = r;
         for (const auto& e : acol[c])
             if (e.first != r && !row_done[e.first]) eta.entries.emplace_back(e.first, e.second / piv);
-        std::vector<std::pair<int,double>>().swap(acol[c]);
+        acol[c].clear();
         cb.remove(c); col_done[c] = 1;
 
         // a_ij -= l_i * a_rj on the row copy; the pass drops column c and any
@@ -250,7 +260,7 @@ std::vector<std::pair<int,int>> BasisLU::factorize(int m, const ColumnFn& get_co
     }
     // Row-wise copy of L for BTRAN's push form: lrow_[i] = (pivot row, l) of
     // every eta in which row i was eliminated.
-    lrow_.assign(m, {});
+    reset_lists(lrow_, m);
     for (const auto& eta : l_etas_)
         for (const auto& en : eta.entries) lrow_[en.first].emplace_back(eta.pivot_row, en.second);
     lrow_order_ = row_of_;

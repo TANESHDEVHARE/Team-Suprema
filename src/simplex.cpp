@@ -597,7 +597,8 @@ std::string DualSimplex::dual_loop(bool phase1) {
 
         // ---- dual steepest-edge weights ----
         if (opt_.steepest_edge) {
-            std::vector<double> rho_copy = rho;
+            std::vector<double>& rho_copy = dse_tmp_;   // reused buffer: no allocation per pivot
+            rho_copy = rho;
             ScopeTimer st(stats_.t_dse);
             lu_.ftran(rho_copy, tau);
             double wr = 0.0;
@@ -1182,7 +1183,7 @@ int DualSimplex::remove_inactive_rows(int first, double slack_tol) {
     return removed;
 }
 
-void DualSimplex::tableau_row(int slot, std::vector<double>& alpha) {
+void DualSimplex::tableau_row(int slot, std::vector<double>& alpha) const {
     std::vector<double> e(m_, 0.0), rho;
     e[slot] = 1.0;
     lu_.btran(e, rho);

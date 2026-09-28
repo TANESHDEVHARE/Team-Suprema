@@ -5,6 +5,7 @@
     sovereign compare <model.mps> [--engines dual,concurrent,ipm,pdlp] [--highs] [--time S]
     sovereign scale   [--family transport|refinery_lp|refinery_milp|refinery_qp] [--sizes 50,100,200] [--engine E]
     sovereign verify  <model.mps> <solution.sol>
+    sovereign robust  [--classes ill,degenerate,infeasible,weak,large] [--highs]
 
 Every solve runs on this machine's CPU and GPU. Reports show the verified
 status, the independent verifier's residuals, time, CPU cores, memory, heap
@@ -140,6 +141,8 @@ def fcount(n):
 
 
 def fres(v, tol=1e-6):
+    if isinstance(v, str):                          # "Infinity" in the JSON: nothing was measured
+        v = None
     if v is None:
         return "–", ""
     mark = green("✓ pass") if v <= tol else (yellow("~ ≤ 1e-4") if v <= 1e-4 else red("✗ fail"))
@@ -244,13 +247,17 @@ def report(run, out_dir, show_vars):
         kv([("Iterations", fcount(R["iterations"]))])
 
     rule("Independent verification  (original, unscaled, unpresolved model)")
-    rows = [["Primal feasibility (rows + bounds)", *fres(R["residuals"]["primal"])]]
-    if mip:
-        rows.append(["Integrality (max violation)", *fres(mip["max_integrality_violation"])])
+    if not R["has_solution"]:
+        print("  " + dim("No solution to verify: the engine reports %s (a proof from the engine, not a point)." %
+                         R["status"].replace("_", " ")))
     else:
-        rows.append(["Dual feasibility", *fres(R["residuals"]["dual"])])
-        rows.append(["Duality gap", *fres(R["residuals"]["gap"])])
-    table(["Check", "Residual", "Result"], rows, ["l", "r", "l"])
+        rows = [["Primal feasibility (rows + bounds)", *fres(R["residuals"]["primal"])]]
+        if mip:
+            rows.append(["Integrality (max violation)", *fres(mip["max_integrality_violation"])])
+        else:
+            rows.append(["Dual feasibility", *fres(R["residuals"]["dual"])])
+            rows.append(["Duality gap", *fres(R["residuals"]["gap"])])
+        table(["Check", "Residual", "Result"], rows, ["l", "r", "l"])
 
     rule("CPU and time")
     kv([("Wall / CPU time", "%s wall · %s CPU (user + kernel, all threads)" % (ftime(M["wall"]), ftime(M["cpu"]))),
@@ -302,9 +309,9 @@ def report(run, out_dir, show_vars):
         print("  " + dim("%s of %s constraints binding (equalities included)" % (fcount(len(binding)), fcount(R["constraints_total"]))))
 
     rule("Files")
-    for name, what in [("solution.sol", "solution (re-check: sovereign verify <model> <this file>)"),
-                       ("solution_variables.csv", "all variables"), ("solution_constraints.csv", "all constraints"),
-                       ("result.json", "full result and resource counters"), ("solver.log", "solver log")]:
+    files = [("solution.sol", "solution (re-check: sovereign verify <model> <this file>)"),
+             ("solution_variables.csv", "all variables"), ("solution_constraints.csv", "all constraints")] if R["has_solution"] else []
+    for name, what in files + [("result.json", "full result and resource counters"), ("solver.log", "solver log")]:
         p = os.path.join(out_dir, name)
         if os.path.isfile(p):
             print("  " + p + dim("   " + what))
@@ -613,8 +620,20 @@ def main():
 
     sub.add_parser("info", help="solver binary, hardware, engines")
 
-    a = ap.parse_args()
+    p = sub.add_parser("robust", help="numerical robustness demonstration (see tools/robustness.py)")
+    # its options (--classes, --highs, --time, ...) are passed through to tools/robustness.py
+
+    a, rest = ap.parse_known_args()
+    if rest and a.cmd != "robust":
+        ap.error("unrecognized arguments: " + " ".join(rest))
+    a.rest = rest
     setup_terminal(a.no_color)
+    if a.cmd == "robust":
+        import subprocess
+        args = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "robustness.py")]
+        if a.exe:
+            args += ["--exe", a.exe]
+        return subprocess.call(args + a.rest)
     try:
         return {"solve": cmd_solve, "compare": cmd_compare, "scale": cmd_scale, "verify": cmd_verify, "info": cmd_info}[a.cmd](a)
     except (FileNotFoundError, ValueError) as e:

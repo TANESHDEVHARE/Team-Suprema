@@ -33,7 +33,7 @@ public:
     // (all rows if seed is empty). Records every change in `log` as
     // (col, old lo, old hi) so the caller can undo. False if infeasible.
     bool propagate(std::vector<double>& lo, std::vector<double>& hi, const std::vector<int>& seed,
-                   std::vector<std::tuple<int,double,double>>* log, long long work_limit = 2000000);
+                   std::vector<std::tuple<int,double,double>>* log, long long work_limit = 2000000) const;   // thread-safe
 private:
     int m_, n_;
     std::vector<int> rp_, ri_, cp_, ci_;     // CSR rows (cols in ri_), CSC columns (rows in ci_)
@@ -48,10 +48,10 @@ struct ProbeResult {
     std::vector<Implication> impl;
 };
 
-// Probes the binaries of lp within `seconds`; lo/hi (global bounds) are
-// tightened in place.
+// Probes the binaries of lp within `seconds` on `threads` threads; lo/hi
+// (global bounds) are tightened in place.
 ProbeResult probe(const RangedLP& lp, const std::vector<char>& is_int, std::vector<double>& lo,
-                  std::vector<double>& hi, double seconds);
+                  std::vector<double>& hi, double seconds, int threads = 1);
 
 class CliqueTable {
 public:

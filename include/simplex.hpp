@@ -125,7 +125,7 @@ public:
     // number removed. Remaining rows keep their relative order.
     int remove_inactive_rows(int first_removable, double slack_tol = 1e-6);
     // Row `slot` of the tableau B^{-1} [A I], dense over all n+m variables.
-    void tableau_row(int slot, std::vector<double>& alpha);
+    void tableau_row(int slot, std::vector<double>& alpha) const;   // read-only: safe from parallel cut separators
     int basic_var(int slot) const { return basis_[slot]; }
     int slot_of(int j) const { return slot_of_[j]; }
     VarStatus status(int j) const { return status_[j]; }
@@ -170,6 +170,7 @@ private:
 
     SimplexOptions opt_;
     SimplexStats stats_;
+    std::vector<double> dse_tmp_;          // scratch for the steepest-edge update
     double t_start_ = 0.0;
 
     // ---- helpers ----

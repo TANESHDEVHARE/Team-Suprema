@@ -23,8 +23,22 @@ constexpr double kInf = std::numeric_limits<double>::infinity();
 
 struct BoundChange { int col; double lo, hi; };
 
+// A node's bound changes as a persistent list: the changes made when the node
+// was created, plus a shared pointer to its parent's list. Siblings share the
+// parent's list, so an open node costs O(its own changes), not O(depth).
+struct BoundTrail {
+    mutable std::shared_ptr<const BoundTrail> parent;
+    std::vector<BoundChange> changes;
+    BoundTrail(std::shared_ptr<const BoundTrail> p, std::vector<BoundChange> c) : parent(std::move(p)), changes(std::move(c)) {}
+    ~BoundTrail() {                                   // unlink iteratively: deep trees must not recurse
+        std::shared_ptr<const BoundTrail> p = std::move(parent);
+        while (p && p.use_count() == 1) { std::shared_ptr<const BoundTrail> next = std::move(p->parent); p = std::move(next); }
+    }
+};
+
 struct Node {
-    std::vector<BoundChange> bounds;                  // full list from the root; later entries win
+    std::shared_ptr<const BoundTrail> trail;          // changes inherited from the ancestors
+    std::vector<BoundChange> bounds;                  // this node's own changes; later entries win
     double lb = -kInf;                                // parent's LP bound
     int depth = 0;
     int branch_var = -1;                              // for pseudocost updates
@@ -54,7 +68,12 @@ struct Shared {
     CSR Arows;
     double t0 = 0.0;
 
-    std::mutex mu;
+    // Locks, never held together: mu guards the node pool and the search
+    // state (open, active, stop, status, worker_lb, stored bases); inc_mu the
+    // incumbent solution (its value is also an atomic, read without a lock);
+    // pc_mu the pseudocosts. Incumbent updates and pseudocost bookkeeping no
+    // longer stall workers that are taking or pushing nodes.
+    std::mutex mu, inc_mu, pc_mu;
     std::condition_variable cv;
     std::priority_queue<Node, std::vector<Node>, NodeOrder> open;
     int active = 0;                                   // workers currently holding a node
@@ -75,6 +94,7 @@ struct Shared {
     // clique table (separated at the root cut loop).
     std::vector<Implication> impl;
     CliqueTable cliques;
+    std::unique_ptr<Propagator> prop;                 // bound propagation on the model rows (heuristics)
 
     std::atomic<long long> nodes{0}, lp_iterations{0};
     std::atomic<int> heuristic_solutions{0};
@@ -132,11 +152,43 @@ private:
         return st;
     }
 
+    // Runs body(begin, end) over [0, count) on up to opt_.threads threads,
+    // handing out chunks dynamically. Callers write results into per-index
+    // slots, so the combined result does not depend on thread timing.
+    template <class F> void parallel_for(size_t count, F&& body) {
+        const int T = (int)std::max<size_t>(1, std::min<size_t>((size_t)std::max(1, opt_.threads), count / 4));
+        if (T <= 1) { body((size_t)0, count); return; }
+        std::atomic<size_t> next{0};
+        const size_t chunk = std::max<size_t>(1, count / ((size_t)T * 8));
+        std::vector<std::thread> th;
+        for (int t = 0; t < T; ++t)
+            th.emplace_back([&]() {
+                for (;;) {
+                    size_t b = next.fetch_add(chunk);
+                    if (b >= count) return;
+                    body(b, std::min(count, b + chunk));
+                }
+            });
+        for (auto& x : th) x.join();
+    }
+
     void apply_bounds(const std::vector<BoundChange>& bc) {
         for (int j : applied_) spx_.set_col_bounds(j, S.root_lo[j], S.root_hi[j]);
         applied_.clear();
         for (const auto& b : bc) { spx_.set_col_bounds(b.col, b.lo, b.hi); applied_.push_back(b.col); }
     }
+    // All of a node's bound changes, root first (later entries win).
+    void apply_bounds(const Node& nd) {
+        trail_buf_.clear();
+        for (const BoundTrail* t = nd.trail.get(); t; t = t->parent.get()) trail_stack_.push_back(t);
+        for (auto it = trail_stack_.rbegin(); it != trail_stack_.rend(); ++it)
+            trail_buf_.insert(trail_buf_.end(), (*it)->changes.begin(), (*it)->changes.end());
+        trail_stack_.clear();
+        trail_buf_.insert(trail_buf_.end(), nd.bounds.begin(), nd.bounds.end());
+        apply_bounds(trail_buf_);
+    }
+    std::vector<BoundChange> trail_buf_;
+    std::vector<const BoundTrail*> trail_stack_;
 
     bool is_fractional(int j, double& v) const {
         v = spx_.value(j);
@@ -173,7 +225,7 @@ private:
         double obj = S.lp.obj_offset;
         for (int j = 0; j < n_; ++j) obj += S.lp.c[j] * x[j];
         {
-            std::lock_guard<std::mutex> lk(S.mu);
+            std::lock_guard<std::mutex> lk(S.inc_mu);
             double cur = S.inc_obj.load();
             if (obj >= cur - 1e-9 * (1.0 + std::fabs(cur))) return false;
             S.inc_x = x;
@@ -201,6 +253,7 @@ private:
 
     // ----------------------------------------------------------- heuristics
     void rounding_heuristic();
+    void fix_and_propagate();
     void dive(int max_depth);
     void feasibility_pump(int max_rounds);
     void rins(long long node_budget, bool rens = false);
@@ -215,7 +268,7 @@ private:
     void update_pseudocost(int j, int dir, double delta, double dist) {
         if (dist <= 1e-9 || !std::isfinite(delta)) return;
         double unit = std::max(delta, 0.0) / dist;
-        std::lock_guard<std::mutex> lk(S.mu);
+        std::lock_guard<std::mutex> lk(S.pc_mu);
         S.pc_sum[dir][j] += unit;
         S.pc_cnt[dir][j]++;
         S.pc_avg_sum[dir] += unit;
@@ -278,10 +331,14 @@ int BranchAndCut::gmi_cuts(std::vector<DualSimplex::Row>& out, int max_cuts) {
     std::sort(cand.begin(), cand.end(), [](const Cand& a, const Cand& b) { return a.score < b.score; });
     if ((int)cand.size() > max_cuts) cand.resize(max_cuts);
 
+    // Candidate rows are independent: separated in parallel, collected in
+    // candidate order.
+    std::vector<std::vector<DualSimplex::Row>> got(cand.size());
+    parallel_for(cand.size(), [&](size_t k0, size_t k1) {
     std::vector<double> alpha, g(n_);
     std::vector<std::pair<int,double>> rowent;
-    int made = 0;
-    for (const auto& c : cand) {
+    for (size_t kc = k0; kc < k1; ++kc) {
+        const auto& c = cand[kc];
         spx_.tableau_row(c.slot, alpha);
         const int bj = spx_.basic_var(c.slot);
         const double beta = spx_.value(bj);
@@ -319,8 +376,11 @@ int BranchAndCut::gmi_cuts(std::vector<DualSimplex::Row>& out, int max_cuts) {
         }
         if (!ok) continue;
         DualSimplex::Row row;
-        if (finish_cut(g, R, row)) { out.push_back(std::move(row)); ++made; }
+        if (finish_cut(g, R, row)) got[kc].push_back(std::move(row));
     }
+    });
+    int made = 0;
+    for (auto& v : got) for (auto& r : v) { out.push_back(std::move(r)); ++made; }
     return made;
 }
 
@@ -400,7 +460,6 @@ int BranchAndCut::cover_cuts(std::vector<DualSimplex::Row>& out) {
 int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
     constexpr int kMaxAggr = 5;
     int made = 0;
-    std::vector<std::pair<int,double>> ent;
 
     // Rows of the current LP -- the model's and the cuts added so far (MIR on
     // a cut gives a higher-rank cut) -- and the column -> rows incidence.
@@ -445,18 +504,33 @@ int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
         return d;
     };
 
+    // Per-thread scratch, reused across every base inequality a thread sees:
+    // the separator allocates nothing per attempt (allocation traffic, and
+    // contention in the allocator, was what kept it from scaling).
+    struct CT { int j; double g; int kind; double tval; };
+    struct IT { int j; double g; bool comp; double tval; };
+    struct Scratch {
+        std::vector<CT> cont;
+        std::vector<std::pair<int,double>> gint, base;
+        std::vector<int> gpos, used, touched, gtouch;
+        std::vector<IT> ints;
+        std::vector<double> deltas, pi, psi, best_pi, best_psi, g, dense;
+        std::vector<char> in_touched;
+    };
+
     // c-MIR on one base inequality sum_{(j,a) in base} a x_j <= b.
     // Returns true (and appends the cut) if a violated cut was found.
-    auto cmir = [&](const std::vector<std::pair<int,double>>& base, double b) -> bool {
-        struct CT { int j; double g; int kind; double tval; };
-        std::vector<CT> cont;
-        std::vector<std::pair<int,double>> gint;
-        auto add_int = [&](int j, double g) {
-            for (auto& p : gint) if (p.first == j) { p.second += g; return; }
+    auto cmir = [&](Scratch& sc, double b, std::vector<DualSimplex::Row>& dst) -> bool {
+        auto& cont = sc.cont; auto& gint = sc.gint; auto& ints = sc.ints; auto& gpos = sc.gpos;
+        cont.clear(); gint.clear(); ints.clear();
+        auto add_int = [&](int j, double g) {                // O(1) merge through gpos
+            if (gpos[j] >= 0) { gint[gpos[j]].second += g; return; }
+            gpos[j] = (int)gint.size();
             gint.emplace_back(j, g);
         };
+        auto clear_gpos = [&]() { for (const auto& p : gint) gpos[p.first] = -1; };
         double bb = b;
-        for (const auto& e : base) {
+        for (const auto& e : sc.base) {
             int j = e.first; double a = e.second;
             if (is_int_[j]) { add_int(j, a); continue; }
             double lo = spx_.lower(j), hi = spx_.upper(j), xv = spx_.value(j);
@@ -469,11 +543,10 @@ int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
                 bb -= a * lo; cont.push_back({j, a, 0, s_lo});
             } else if (std::isfinite(s_hi)) {
                 bb -= a * hi; cont.push_back({j, -a, 1, s_hi});
-            } else return false;
+            } else { clear_gpos(); return false; }
         }
+        clear_gpos();
         if (gint.empty()) return false;
-        struct IT { int j; double g; bool comp; double tval; };
-        std::vector<IT> ints;
         for (const auto& p : gint) {
             int j = p.first; double g = p.second;
             if (std::fabs(g) < 1e-12) continue;
@@ -485,7 +558,8 @@ int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
         }
         if (ints.empty()) return false;
 
-        std::vector<double> deltas;
+        auto& deltas = sc.deltas;
+        deltas.clear();
         for (const auto& t : ints) if (t.tval > 1e-6 && std::fabs(t.g) > 1e-6) deltas.push_back(std::fabs(t.g));
         std::sort(deltas.begin(), deltas.end());
         deltas.erase(std::unique(deltas.begin(), deltas.end()), deltas.end());
@@ -494,8 +568,10 @@ int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
         size_t nd = deltas.size();
         for (size_t k = 0; k < nd; ++k) for (double dv : {2.0, 4.0, 8.0}) deltas.push_back(deltas[k] / dv);
 
+        auto& pi = sc.pi; auto& psi = sc.psi; auto& best_pi = sc.best_pi; auto& best_psi = sc.best_psi;
+        pi.resize(ints.size()); psi.resize(cont.size());
+        best_pi.clear(); best_psi.clear();
         double best_viol = 1e-6, best_rhs = 0.0;
-        std::vector<double> best_pi, best_psi, pi(ints.size()), psi(cont.size());
         for (double d : deltas) {
             double beta = bb / d, f0 = beta - std::floor(beta);
             if (f0 < 0.05 || f0 > 0.95) continue;
@@ -513,99 +589,115 @@ int BranchAndCut::mir_cuts(std::vector<DualSimplex::Row>& out) {
             if (viol > best_viol) { best_viol = viol; best_pi = pi; best_psi = psi; best_rhs = std::floor(beta); }
         }
         if (best_pi.empty()) return false;
-        // back to x:  sum pi t_int + sum psi t_cont <= R
-        std::vector<double> g(n_, 0.0);
+        // back to x:  sum pi t_int + sum psi t_cont <= R   (g is kept all-zero between calls)
+        auto& g = sc.g; auto& gt = sc.gtouch;
+        gt.clear();
+        auto addg = [&](int j, double v) { if (g[j] == 0.0) gt.push_back(j); g[j] += v; };
         double R = best_rhs;
         for (size_t k = 0; k < ints.size(); ++k) {
             double p = best_pi[k]; if (p == 0.0) continue;
             int j = ints[k].j;
-            if (!ints[k].comp) { g[j] += p; R += p * spx_.lower(j); }
-            else               { g[j] -= p; R -= p * spx_.upper(j); }
+            if (!ints[k].comp) { addg(j, p); R += p * spx_.lower(j); }
+            else               { addg(j, -p); R -= p * spx_.upper(j); }
         }
         for (size_t k = 0; k < cont.size(); ++k) {
             double p = best_psi[k]; if (p == 0.0) continue;
             int j = cont[k].j;
-            if (cont[k].kind == 0)      { g[j] += p; R += p * spx_.lower(j); }
-            else if (cont[k].kind == 1) { g[j] -= p; R -= p * spx_.upper(j); }
-            else                        { g[j] -= p; g[vub_y[j]] += p * vub_u[j]; }
+            if (cont[k].kind == 0)      { addg(j, p); R += p * spx_.lower(j); }
+            else if (cont[k].kind == 1) { addg(j, -p); R -= p * spx_.upper(j); }
+            else                        { addg(j, -p); addg(vub_y[j], p * vub_u[j]); }
         }
-        for (auto& v : g) v = -v;           // finish_cut takes g^T x >= R
+        for (int j : gt) g[j] = -g[j];      // finish_cut takes g^T x >= R
         DualSimplex::Row row;
-        if (!finish_cut(g, -R, row)) return false;
-        out.push_back(std::move(row));
+        const bool ok = finish_cut(g, -R, row);
+        for (int j : gt) g[j] = 0.0;
+        if (!ok) return false;
+        dst.push_back(std::move(row));
         return true;
     };
 
-    std::vector<double> dense(n_, 0.0);
-    std::vector<int> touched;
-    std::vector<char> in_touched(n_, 0);
-    for (int i = 0; i < mrows; ++i) {
-        const auto& E = rows[i].e;
-        if (E.empty()) continue;
-        for (int side = 0; side < 2; ++side) {
-            double b = side == 0 ? rows[i].hi : -rows[i].lo;
-            if (!std::isfinite(b)) continue;
-            const double sg = side == 0 ? 1.0 : -1.0;
-            double act = 0.0;
-            for (const auto& e : E) act += sg * e.second * spx_.value(e.first);
-            if (b - act > 0.1 * (1.0 + std::fabs(b))) continue;       // far from binding
+    // Start rows are independent: separated in parallel with per-thread
+    // scratch, cuts collected in row order.
+    std::vector<std::vector<DualSimplex::Row>> got(mrows);
+    parallel_for((size_t)mrows, [&](size_t i0, size_t i1) {
+        Scratch sc;
+        sc.gpos.assign(n_, -1);
+        sc.g.assign(n_, 0.0);
+        sc.dense.assign(n_, 0.0);
+        sc.in_touched.assign(n_, 0);
+        auto& dense = sc.dense; auto& touched = sc.touched; auto& in_touched = sc.in_touched; auto& used = sc.used;
+        for (int i = (int)i0; i < (int)i1; ++i) {
+            const auto& E = rows[i].e;
+            if (E.empty()) continue;
+            for (int side = 0; side < 2; ++side) {
+                double b = side == 0 ? rows[i].hi : -rows[i].lo;
+                if (!std::isfinite(b)) continue;
+                const double sg = side == 0 ? 1.0 : -1.0;
+                double act = 0.0;
+                for (const auto& e : E) act += sg * e.second * spx_.value(e.first);
+                if (b - act > 0.1 * (1.0 + std::fabs(b))) continue;       // far from binding
 
-            // aggregated row held densely over the touched columns
-            for (int j : touched) { dense[j] = 0.0; in_touched[j] = 0; }
-            touched.clear();
-            auto add_row = [&](int r, double mult) {
-                for (const auto& e : rows[r].e) {
-                    if (!in_touched[e.first]) { in_touched[e.first] = 1; touched.push_back(e.first); }
-                    dense[e.first] += mult * e.second;
+                // aggregated row held densely over the touched columns
+                for (int j : touched) { dense[j] = 0.0; in_touched[j] = 0; }
+                touched.clear();
+                auto add_row = [&](int r, double mult) {
+                    for (const auto& e : rows[r].e) {
+                        if (!in_touched[e.first]) { in_touched[e.first] = 1; touched.push_back(e.first); }
+                        dense[e.first] += mult * e.second;
+                    }
+                };
+                add_row(i, sg);
+                used.assign(1, i);
+                for (int agg = 0; agg <= kMaxAggr; ++agg) {
+                    auto& base = sc.base;
+                    base.clear();
+                    double amax = 0.0;
+                    for (int j : touched) amax = std::max(amax, std::fabs(dense[j]));
+                    for (int j : touched) if (std::fabs(dense[j]) > 1e-9 * amax) base.emplace_back(j, dense[j]);
+                    if (base.empty()) break;
+                    if (cmir(sc, b, got[i])) break;
+                    if (agg == kMaxAggr) break;
+                    // eliminate the continuous variable farthest from its bounds
+                    int jc = -1; double best_d = 1e-6;
+                    for (const auto& e : base) {
+                        if (is_int_[e.first]) continue;
+                        double d = bound_dist(e.first);
+                        if (d > best_d) { best_d = d; jc = e.first; }
+                    }
+                    if (jc < 0) break;
+                    int rbest = -1; double mbest = 0.0, slack_best = kInf;
+                    for (const auto& [r, arj] : col_rows[jc]) {
+                        if (std::find(used.begin(), used.end(), r) != used.end()) continue;
+                        double mult = -dense[jc] / arj;
+                        const bool eq = rows[r].lo == rows[r].hi;
+                        double rb;
+                        if (eq) rb = rows[r].hi;
+                        else if (mult > 0 && std::isfinite(rows[r].hi)) rb = rows[r].hi;       // a_r x <= hi, scaled by mult > 0
+                        else if (mult < 0 && std::isfinite(rows[r].lo)) rb = rows[r].lo;       // a_r x >= lo, scaled by mult < 0
+                        else continue;
+                        double ract = 0.0;
+                        for (const auto& e : rows[r].e) ract += e.second * spx_.value(e.first);
+                        double slack = std::fabs(rb - ract) / (1.0 + std::fabs(rb));
+                        if (slack < slack_best) { slack_best = slack; rbest = r; mbest = mult; }
+                    }
+                    if (rbest < 0) break;
+                    const bool eq = rows[rbest].lo == rows[rbest].hi;
+                    b += mbest * (eq ? rows[rbest].hi : (mbest > 0 ? rows[rbest].hi : rows[rbest].lo));
+                    add_row(rbest, mbest);
+                    dense[jc] = 0.0;
+                    used.push_back(rbest);
                 }
-            };
-            add_row(i, sg);
-            std::vector<int> used{i};
-            for (int agg = 0; agg <= kMaxAggr; ++agg) {
-                std::vector<std::pair<int,double>> base;
-                double amax = 0.0;
-                for (int j : touched) amax = std::max(amax, std::fabs(dense[j]));
-                for (int j : touched) if (std::fabs(dense[j]) > 1e-9 * amax) base.emplace_back(j, dense[j]);
-                if (base.empty()) break;
-                if (cmir(base, b)) { ++made; break; }
-                if (agg == kMaxAggr) break;
-                // eliminate the continuous variable farthest from its bounds
-                int jc = -1; double best_d = 1e-6;
-                for (const auto& e : base) {
-                    if (is_int_[e.first]) continue;
-                    double d = bound_dist(e.first);
-                    if (d > best_d) { best_d = d; jc = e.first; }
-                }
-                if (jc < 0) break;
-                int rbest = -1; double mbest = 0.0, slack_best = kInf;
-                for (const auto& [r, arj] : col_rows[jc]) {
-                    if (std::find(used.begin(), used.end(), r) != used.end()) continue;
-                    double mult = -dense[jc] / arj;
-                    const bool eq = rows[r].lo == rows[r].hi;
-                    double rb;
-                    if (eq) rb = rows[r].hi;
-                    else if (mult > 0 && std::isfinite(rows[r].hi)) rb = rows[r].hi;       // a_r x <= hi, scaled by mult > 0
-                    else if (mult < 0 && std::isfinite(rows[r].lo)) rb = rows[r].lo;       // a_r x >= lo, scaled by mult < 0
-                    else continue;
-                    double ract = 0.0;
-                    for (const auto& e : rows[r].e) ract += e.second * spx_.value(e.first);
-                    double slack = std::fabs(rb - ract) / (1.0 + std::fabs(rb));
-                    if (slack < slack_best) { slack_best = slack; rbest = r; mbest = mult; }
-                }
-                if (rbest < 0) break;
-                const bool eq = rows[rbest].lo == rows[rbest].hi;
-                b += mbest * (eq ? rows[rbest].hi : (mbest > 0 ? rows[rbest].hi : rows[rbest].lo));
-                add_row(rbest, mbest);
-                dense[jc] = 0.0;
-                used.push_back(rbest);
             }
         }
-    }
-    for (int j : touched) dense[j] = 0.0;
+    });
+    for (auto& v : got) for (auto& r : v) { out.push_back(std::move(r)); ++made; }
     return made;
 }
 
 void BranchAndCut::root_cuts() {
+    const double t_root_cuts = elapsed();
+    double sep_seconds = 0.0;                       // time in the separators (parallel), LP re-solves excluded
+    double sep_parts[5] = {0, 0, 0, 0, 0};           // gmi, cover, mir, clique, implied bound
     double obj = spx_.objective();
     double gap_ref = std::fabs(obj);
     int stall_rounds = 0;
@@ -615,14 +707,19 @@ void BranchAndCut::root_cuts() {
         fractional_list(frac);
         if (frac.empty()) break;
         std::vector<DualSimplex::Row> cuts;
-        gmi_cuts(cuts, 100);
-        cover_cuts(cuts);
-        mir_cuts(cuts);
+        const double ts = elapsed();
+        double tt = ts;
+        auto lap = [&](int k) { double e = elapsed(); sep_parts[k] += e - tt; tt = e; };
+        gmi_cuts(cuts, 100); lap(0);
+        cover_cuts(cuts); lap(1);
+        mir_cuts(cuts); lap(2);
         {
             std::vector<double> x = spx_.primal();
             S.cliques.separate(x, cuts, 100);
         }
-        implied_bound_cuts(cuts, 200);
+        lap(3);
+        implied_bound_cuts(cuts, 200); lap(4);
+        sep_seconds += elapsed() - ts;
         if (cuts.empty()) break;
         // parallelism filter: keep a cut only if it is not nearly parallel to one kept
         std::vector<DualSimplex::Row> kept;
@@ -662,6 +759,9 @@ void BranchAndCut::root_cuts() {
     }
     // Keep only binding cuts in the tree LP.
     if (spx_.m() > m0_ && spx_.remove_inactive_rows(m0_) > 0) solve_lp();
+    if (opt_.verbose)
+        std::printf("  root cuts: %.2fs total, %.2fs separating (%d threads): gmi %.2f cover %.2f mir %.2f clique %.2f implied %.2f\n",
+                    elapsed() - t_root_cuts, sep_seconds, opt_.threads, sep_parts[0], sep_parts[1], sep_parts[2], sep_parts[3], sep_parts[4]);
 }
 
 // ================================================================ heuristics
@@ -734,7 +834,7 @@ void BranchAndCut::rins(long long node_budget, bool rens) {
     // needed): fix integers that are already integral in the LP solution.
     std::vector<double> xinc;
     if (!rens) {
-        std::lock_guard<std::mutex> lk(S.mu);
+        std::lock_guard<std::mutex> lk(S.inc_mu);
         if (S.inc_x.empty()) return;
         xinc = S.inc_x;
     }
@@ -778,6 +878,59 @@ void BranchAndCut::rins(long long node_budget, bool rens) {
 
 // Fractional diving: fix the least fractional variable to its nearest integer
 // and re-solve, until integral, infeasible or worse than the incumbent.
+// Fix-and-propagate: fix the integer variables one at a time to the rounded
+// LP value, most decided first, propagating bounds through the rows after
+// each fixing; on a conflict undo it and try the other rounding. When every
+// integer is fixed, one LP over the continuous variables completes the point.
+void BranchAndCut::fix_and_propagate() {
+    if (!S.prop) return;
+    const std::vector<double> x = spx_.primal();
+    std::vector<double> lo(n_), hi(n_);
+    for (int j = 0; j < n_; ++j) { lo[j] = spx_.lower(j); hi[j] = spx_.upper(j); }
+    std::vector<int> order;
+    bool has_continuous = false;
+    for (int j = 0; j < n_; ++j) {
+        if (is_int_[j]) order.push_back(j);
+        else if (lo[j] != hi[j]) has_continuous = true;
+    }
+    std::sort(order.begin(), order.end(), [&](int a, int b) {
+        return std::fabs(x[a] - std::round(x[a])) < std::fabs(x[b] - std::round(x[b]));
+    });
+    std::vector<std::tuple<int,double,double>> log;
+    for (int j : order) {
+        if (out_of_time()) return;
+        if (lo[j] == hi[j]) continue;
+        double v = std::min(std::max(std::round(x[j]), lo[j]), hi[j]);
+        double alt = x[j] >= v ? v + 1.0 : v - 1.0;          // the other rounding
+        bool ok = false;
+        for (double val : {v, alt}) {
+            if (val < lo[j] || val > hi[j]) continue;
+            log.clear();
+            log.emplace_back(j, lo[j], hi[j]);
+            lo[j] = hi[j] = val;
+            if (S.prop->propagate(lo, hi, {j}, &log, 200000)) { ok = true; break; }
+            for (auto it = log.rbegin(); it != log.rend(); ++it) { lo[std::get<0>(*it)] = std::get<1>(*it); hi[std::get<0>(*it)] = std::get<2>(*it); }
+        }
+        if (!ok) return;                                     // dead end: no rounding survives propagation
+    }
+    if (!has_continuous) {
+        std::vector<double> xi(n_);
+        for (int j = 0; j < n_; ++j) xi[j] = lo[j];
+        try_incumbent(xi, "fix-and-propagate");
+        return;
+    }
+    auto saved_basis = spx_.get_basis();
+    std::vector<std::pair<int, std::pair<double,double>>> changed;
+    for (int j : order) {
+        changed.push_back({j, {spx_.lower(j), spx_.upper(j)}});
+        spx_.set_col_bounds(j, lo[j], hi[j]);
+    }
+    std::string st = solve_lp(std::max(2000, 4 * spx_.m()));
+    if (st == "optimal") try_incumbent(spx_.primal(), "fix-and-propagate");
+    for (auto it = changed.rbegin(); it != changed.rend(); ++it) spx_.set_col_bounds(it->first, it->second.first, it->second.second);
+    spx_.set_basis(saved_basis);
+}
+
 void BranchAndCut::dive(int max_depth) {
     auto saved_basis = spx_.get_basis();
     std::vector<std::pair<int, std::pair<double,double>>> changed;
@@ -814,7 +967,7 @@ int BranchAndCut::select_branch(const std::vector<int>& frac, double lp_obj, boo
     struct C { int j; double s; bool reliable; };
     std::vector<C> cs;
     {
-        std::lock_guard<std::mutex> lk(S.mu);
+        std::lock_guard<std::mutex> lk(S.pc_mu);
         for (int j : frac) {
             double f = xval[j] - std::floor(xval[j]);
             bool rel = std::min(S.pc_cnt[0][j], S.pc_cnt[1][j]) >= opt_.reliability;
@@ -876,7 +1029,8 @@ int BranchAndCut::select_branch(const std::vector<int>& frac, double lp_obj, boo
 bool BranchAndCut::probe_root() {
     std::vector<double> lo = S.root_lo, hi = S.root_hi;
     const double budget = std::min(5.0, 0.05 * opt_.time_limit);
-    ProbeResult pr = probe(S.lp, is_int_, lo, hi, budget);
+    ProbeResult pr = probe(S.lp, is_int_, lo, hi, budget, opt_.threads);
+    S.prop = std::make_unique<Propagator>(S.lp, is_int_);
     if (pr.infeasible) { S.res.status = "infeasible"; return false; }
     int changed = 0;
     for (int j = 0; j < n_; ++j)
@@ -959,6 +1113,7 @@ bool BranchAndCut::root() {
             heur_deadline_ = th + std::max(0.5, 0.05 * opt_.time_limit);
         };
         rounding_heuristic(); lap("rounding");
+        fix_and_propagate(); lap("fixprop");
         if (opt_.rins) { rins(500, true); lap("rens"); }
         if (!std::isfinite(inc_obj())) { feasibility_pump(100); lap("pump"); }
         dive(n_); lap("dive");
@@ -1030,7 +1185,7 @@ void BranchAndCut::tree(Node cur, bool have_cur) {
         if (cur.lb >= cutoff()) { release(); continue; }
 
         if (!cur_solved) {
-            apply_bounds(cur.bounds);
+            apply_bounds(cur);
             if (cur.basis) spx_.set_basis(*cur.basis);
             st = solve_lp();
         } else st = "optimal";
@@ -1053,6 +1208,7 @@ void BranchAndCut::tree(Node cur, bool have_cur) {
         if (frac.empty()) { try_incumbent(spx_.primal(), "node"); release(); continue; }
 
         if (opt_.heuristics && opt_.dive_frequency > 0 && S.nodes.load() % opt_.dive_frequency == 0) {
+            if (!std::isfinite(inc_obj())) fix_and_propagate();   // still no solution: try from this node's LP
             dive(50);
             if (opt_.rins && id_ == 0 && std::isfinite(inc_obj()) && S.nodes.load() % (5 * opt_.dive_frequency) == 0) rins(200);
             if (cur.lb >= cutoff()) { release(); continue; }
@@ -1093,7 +1249,7 @@ void BranchAndCut::tree(Node cur, bool have_cur) {
         // may have added fixings: re-solve (usually zero pivots) before branching.
         double xv = 0.0;
         {
-            apply_bounds(cur.bounds);
+            apply_bounds(cur);
             for (const auto& b : fix) { spx_.set_col_bounds(b.col, b.lo, b.hi); applied_.push_back(b.col); }
             st = solve_lp();
             if (st != "optimal" || spx_.objective() >= cutoff()) { release(); continue; }
@@ -1110,8 +1266,12 @@ void BranchAndCut::tree(Node cur, bool have_cur) {
         const double lo = spx_.lower(j), hi = spx_.upper(j);
 
         Node down, up;
-        down.bounds = cur.bounds; down.bounds.insert(down.bounds.end(), fix.begin(), fix.end());
-        up.bounds = down.bounds;
+        {   // both children share one trail node: this node's changes plus the fixings
+            std::vector<BoundChange> own = cur.bounds;
+            own.insert(own.end(), fix.begin(), fix.end());
+            auto shared = std::make_shared<const BoundTrail>(cur.trail, std::move(own));
+            down.trail = shared; up.trail = std::move(shared);
+        }
         down.bounds.push_back({j, lo, std::floor(xv)});
         up.bounds.push_back({j, std::ceil(xv), hi});
         down.lb = up.lb = cur.lb;

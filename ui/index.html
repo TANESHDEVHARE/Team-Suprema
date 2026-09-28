@@ -451,7 +451,8 @@ function renderSummary() {
          : kpi("Iterations", (R.iterations || 0).toLocaleString(), "pivots / IPM iterations")) +
     `</div>`;
   h += `<div class="grid2">`;
-  h += `<div class="card"><h3>Independent verification</h3><table><thead><tr><th class="l">Check</th><th>Residual</th><th class="l">Result</th></tr></thead><tbody>` +
+  if (!R.has_solution) h += `<div class="card"><h3>Independent verification</h3><p class="help" style="margin:0">No solution to verify: the engine reports ${esc(R.status.replace(/_/g, " "))} (a proof from the engine, not a point).</p></div>`;
+  else h += `<div class="card"><h3>Independent verification</h3><table><thead><tr><th class="l">Check</th><th>Residual</th><th class="l">Result</th></tr></thead><tbody>` +
     `<tr><td class="l">Primal feasibility (rows + bounds)</td><td>${sci(R.residuals.primal)}</td><td class="l">${tolOK(R.residuals.primal)}</td></tr>` +
     (mip ? `<tr><td class="l">Integrality (max violation)</td><td>${sci(mip.max_integrality_violation)}</td><td class="l">${tolOK(mip.max_integrality_violation)}</td></tr>`
          : `<tr><td class="l">Dual feasibility</td><td>${sci(R.residuals.dual)}</td><td class="l">${tolOK(R.residuals.dual)}</td></tr>` +

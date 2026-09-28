@@ -73,4 +73,7 @@ private:
     std::vector<int> row_of_, slot_of_, t_of_row_, t_of_slot_;
     std::vector<int> ord_, pos_;                  // pivot order and its inverse
     mutable std::vector<double> work_;
+    // Scratch lists of factorize(), kept between calls so refactorizations
+    // reuse their memory instead of reallocating m small vectors each time.
+    std::vector<std::vector<std::pair<int,double>>> arow_buf_, acol_buf_, uslot_buf_;
 };

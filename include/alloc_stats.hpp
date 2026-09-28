@@ -18,6 +18,10 @@ struct AllocStats {
 };
 AllocStats alloc_stats();
 
+// Heap ceiling for the run (0 = none): an allocation that would take the live
+// heap past it prints "Status: memory_limit" and ends the process (exit code 3).
+void set_heap_limit(long long bytes);
+
 struct ProcessStats {
     long long peak_working_set = 0; // bytes: largest physical memory footprint (RSS)
     long long peak_private = 0;     // bytes: largest committed private memory (0 where unknown)
