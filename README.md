@@ -173,24 +173,90 @@ Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its 
 
 ## Implementation Process
 
+### Schematic Overview
+
 ```mermaid
-flowchart TD
-    A["1️⃣ **DEFINE MATHEMATICS**\nStudy research papers\nWrite design documents\nMap math to code structure"]
-    B["2️⃣ **BUILD FOUNDATION**\nCreate sparse matrix library\nBuild linear algebra core\nLU & LDLᵀ factorization"]
-    C["3️⃣ **DEVELOP SOLVERS**\nLP: Simplex + Interior Point\nQP: Quadratic Programming\nMILP: Branch & Cut"]
-    D["4️⃣ **ADD INTELLIGENCE**\nPresolve (simplify problems)\nScaling (balance numbers)\nVerification (check answers)"]
-    E["5️⃣ **CONNECT & ACCELERATE**\nRun multiple solvers in parallel\nGPU acceleration for large problems\nWeb & Command-line interfaces"]
-    F["6️⃣ **TEST & PROVE**\nStandard benchmarks (Netlib, MIPLIB)\nCompare with commercial solvers\nIndependent verification"]
+flowchart TB
+    %% ============================================================
+    %% LAYER 1: MATHEMATICAL FOUNDATION (Input)
+    %% ============================================================
+    L1A["📐 **RESEARCH PAPERS**\nChvátal, Vanderbei, Mehrotra,\nGondzio, Applegate, Nemhauser"]
+    L1B["📋 **PIPELINE DOCUMENTS**\n`Math/LP_Pipeline.pdf`\n`Math/MILP_Pipeline.pdf`\n`Math/QP_Pipeline.pdf`"]
+    L1C["📝 **DESIGN SPECS**\n`PIPELINE_NOTES.md`\nAlgorithm-to-module mapping\nDeviation tracking"]
     
-    A --> B --> C --> D --> E --> F
+    %% ============================================================
+    %% LAYER 2: CORE INFRASTRUCTURE (Foundation)
+    %% ============================================================
+    L2A["🔢 **SPARSE LINEAR ALGEBRA**\n`include/sparse.hpp`\nCSR/CSC formats · SpMV · matvec"]
+    L2B["🔧 **LU FACTORIZATION**\n`src/basis_lu.cpp`\nMarkowitz pivot · Forrest–Tomlin updates"]
+    L2C["📐 **LDLᵀ FACTORIZATION**\n`src/sparse_ldl.cpp`\nAMD ordering · Supernodal · Inertia control"]
+    L2D["⚖️ **SCALING & PREPROCESS**\n`src/scaling.cpp` · `src/presolve.cpp`\nRuiz + Pock-Chambolle · Reductions"]
     
-    style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    style B fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    style C fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    style D fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    style E fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style F fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    %% ============================================================
+    %% LAYER 3: SOLVER ENGINES (Parallel Development)
+    %% ============================================================
+    L3A["⚙️ **SIMPLEX ENGINE**\n`src/simplex.cpp`\nDual/Primal · Steepest edge · Harris BFRT\nCost perturbation · Bland fallback"]
+    L3B["📈 **INTERIOR POINT ENGINE**\n`src/qp_ipm.cpp`\nMehrotra + Gondzio correctors\nQuasidefinite system · Refinement"]
+    L3C["⚡ **PDLP ENGINE**\n`include/pdlp_algo.hpp` (shared)\nCPU: `src/pdlp.cpp`\nGPU: `gpu/pdlp_gpu_solve.cu`"]
+    L3D["🌳 **MILP ENGINE**\n`src/mip.cpp` + `src/mip_probe.cpp`\nBranch & Cut · Probing · Clique table\nReliability branching · Heuristics"]
+    
+    %% ============================================================
+    %% LAYER 4: INTELLIGENCE LAYER
+    %% ============================================================
+    L4A["🔍 **INDEPENDENT VERIFIER**\n`src/verify.cpp`\nKKT on original problem\nPrimal/Dual/Gap residuals"]
+    L4B["🎯 **CROSSOVER BRIDGE**\nPDLP point → Simplex basis\nPivoting crash → Vertex solution"]
+    L4C["📊 **POSTSOLVE RECOVERY**\nUnscale → Undo presolve (LIFO)\nOriginal-space solution"]
+    
+    %% ============================================================
+    %% LAYER 5: ORCHESTRATION & INTERFACES
+    %% ============================================================
+    L5A["🏁 **CONCURRENT PORTFOLIO**\n`solve_mps_concurrent`\n4 engines race · First verified wins"]
+    L5B["🏎️ **AUTO RACE MODE**\nSimplex vs PDLP+GPU\nFirst certified answer wins"]
+    L5C["🌐 **INTERFACES**\nCLI · Web UI · Python API\nJSON/CSV/.sol output"]
+    
+    %% ============================================================
+    %% LAYER 6: VALIDATION & DELIVERY
+    %% ============================================================
+    L6A["✅ **BENCHMARK SUITE**\nNetlib LP (91) · MIPLIB 3 (63)\nMaros-Mézáros QP (134)"]
+    L6B["⚔️ **COMPETITIVE AUDIT**\nvs HiGHS (commercial reference)\nVerifier checks both"]
+    L6C["📦 **DELIVERY**\nCLI binary · Web UI · Python\nDocs · Scaling studies"]
+    
+    %% ============================================================
+    %% CONNECTIONS (Systematic Flow)
+    %% ============================================================
+    L1A --> L1B --> L1C
+    L1C --> L2A & L2B & L2C & L2D
+    L2A & L2B & L2C & L2D --> L3A & L3B & L3C & L3D
+    L3A & L3B & L3C & L3D --> L4A & L4B & L4C
+    L4A & L4B & L4C --> L5A & L5B & L5C
+    L5A & L5B & L5C --> L6A & L6B & L6C
+    
+    %% Styling - Layer-based colors
+    classDef layer1 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef layer2 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef layer3 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef layer4 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef layer5 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef layer6 fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    
+    class L1A,L1B,L1C layer1
+    class L2A,L2B,L2C,L2D layer2
+    class L3A,L3B,L3C,L3D layer3
+    class L4A,L4B,L4C layer4
+    class L5A,L5B,L5C layer5
+    class L6A,L6B,L6C layer6
 ```
+
+### Layer Summary (for PPT)
+
+| Layer | Purpose | Key Deliverables |
+|-------|---------|------------------|
+| **1. Mathematical Foundation** | Source of truth | Pipeline docs, paper mapping, deviation log |
+| **2. Core Infrastructure** | Reusable building blocks | Sparse LA, LU, LDLᵀ, Scaling, Presolve |
+| **3. Solver Engines** | Problem-specific solvers | Simplex, IPM, PDLP (CPU/GPU), MILP |
+| **4. Intelligence Layer** | Correctness & bridging | Verifier, Crossover, Postsolve |
+| **5. Orchestration** | Smart execution | Portfolio, Race, Interfaces |
+| **6. Validation** | Proof of quality | Benchmarks, Competitive audit, Delivery |
 
 ---
 
