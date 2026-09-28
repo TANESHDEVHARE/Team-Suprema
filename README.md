@@ -173,59 +173,51 @@ Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its 
 
 ## Implementation Process
 
-### Schematic Overview
-
 ```mermaid
-flowchart TB
-    %% ============================================================
-    %% 6 LAYERS - Clean, Fluent, One Node Per Layer
-    %% ============================================================
+flowchart TD
+    %% Start
+    START["📚 **RESEARCH & DESIGN**\nPapers → Pipeline docs → Specs"]
     
-    L1["1️⃣ **MATHEMATICAL FOUNDATION**\nResearch papers → Pipeline docs → Design specs\n`Math/` · `PIPELINE_NOTES.md`"]
+    %% Foundation (parallel)
+    FOUNDATION["🔧 **BUILD FOUNDATION**\nSparse LA · LU · LDLᵀ · AMD\nScaling · Presolve"]
     
-    L2["2️⃣ **CORE INFRASTRUCTURE**\nSparse LA (CSR/CSC) · LU · LDLᵀ · AMD ordering\nScaling (Ruiz + Pock-Chambolle) · Presolve"]
+    %% Engines (parallel development)
+    SIMPLEX["⚙️ Simplex Engine"]
+    IPM["📈 IPM Engine"]
+    PDLP["⚡ PDLP Engine\n(CPU + GPU)"]
+    MILP["🌳 MILP Engine"]
     
-    L3["3️⃣ **SOLVER ENGINES**\nSimplex (Dual/Primal) · IPM (Mehrotra+Gondzio)\nPDLP (CPU + GPU, shared algo) · MILP (Branch & Cut)"]
+    %% Intelligence
+    INTEL["🧠 **INTELLIGENCE LAYER**\nVerifier · Crossover · Postsolve"]
     
-    L4["4️⃣ **INTELLIGENCE LAYER**\nIndependent KKT Verifier · Crossover Bridge\nPostsolve Recovery (unscale + undo presolve)"]
+    %% Orchestration
+    ORCH["🎭 **ORCHESTRATE & INTERFACE**\nPortfolio · Race · CLI · Web · Python"]
     
-    L5["5️⃣ **ORCHESTRATION & INTERFACES**\nConcurrent Portfolio (4 engines race)\nAuto Race (Simplex vs PDLP+GPU) · CLI · Web UI · Python"]
+    %% Validate
+    VALIDATE["✅ **VALIDATE & DELIVER**\nBenchmarks · vs HiGHS · Deploy"]
     
-    L6["6️⃣ **VALIDATION & DELIVERY**\nNetlib · MIPLIB · Maros-Mézáros benchmarks\nvs HiGHS audit · CLI + Web + Python delivery"]
+    %% Flow
+    START --> FOUNDATION
+    FOUNDATION --> SIMPLEX & IPM & PDLP & MILP
+    SIMPLEX & IPM & PDLP & MILP --> INTEL
+    INTEL --> ORCH
+    ORCH --> VALIDATE
     
-    %% Clean linear flow with subtle cross-connections
-    L1 --> L2
-    L2 --> L3
-    L3 --> L4
-    L4 --> L5
-    L5 --> L6
+    %% Styling
+    classDef start fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef foundation fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef engine fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef intel fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef orch fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef validate fill:#e0f2f1,stroke:#00695c,stroke-width:2px
     
-    %% Styling - Layer-based colors
-    classDef layer1 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
-    classDef layer2 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
-    classDef layer3 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    classDef layer4 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef layer5 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef layer6 fill:#e0f2f1,stroke:#00695c,stroke-width:2px
-    
-    class L1 layer1
-    class L2 layer2
-    class L3 layer3
-    class L4 layer4
-    class L5 layer5
-    class L6 layer6
+    class START start
+    class FOUNDATION foundation
+    class SIMPLEX,IPM,PDLP,MILP engine
+    class INTEL intel
+    class ORCH orch
+    class VALIDATE validate
 ```
-
-### Quick Reference (for PPT)
-
-| Layer | What Happens | Output |
-|-------|--------------|--------|
-| **1. Math Foundation** | Papers → Pipeline docs → Specs | Design blueprint |
-| **2. Core Infrastructure** | Sparse matrices, factorizations, preprocessing | Reusable math library |
-| **3. Solver Engines** | 4 engines built on foundation | LP/QP/MILP solvers |
-| **4. Intelligence** | Verification, crossover, recovery | Certified answers |
-| **5. Orchestration** | Smart execution, interfaces | User-ready system |
-| **6. Validation** | Benchmarks, audit, delivery | Proven, deployable product |
 
 ---
 
