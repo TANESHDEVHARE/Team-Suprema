@@ -178,58 +178,27 @@ Pipeline documents in `Math/` + `PIPELINE_NOTES.md` map each code module to its 
 ```mermaid
 flowchart TB
     %% ============================================================
-    %% LAYER 1: MATHEMATICAL FOUNDATION (Input)
+    %% 6 LAYERS - Clean, Fluent, One Node Per Layer
     %% ============================================================
-    L1A["📐 **RESEARCH PAPERS**\nChvátal, Vanderbei, Mehrotra,\nGondzio, Applegate, Nemhauser"]
-    L1B["📋 **PIPELINE DOCUMENTS**\n`Math/LP_Pipeline.pdf`\n`Math/MILP_Pipeline.pdf`\n`Math/QP_Pipeline.pdf`"]
-    L1C["📝 **DESIGN SPECS**\n`PIPELINE_NOTES.md`\nAlgorithm-to-module mapping\nDeviation tracking"]
     
-    %% ============================================================
-    %% LAYER 2: CORE INFRASTRUCTURE (Foundation)
-    %% ============================================================
-    L2A["🔢 **SPARSE LINEAR ALGEBRA**\n`include/sparse.hpp`\nCSR/CSC formats · SpMV · matvec"]
-    L2B["🔧 **LU FACTORIZATION**\n`src/basis_lu.cpp`\nMarkowitz pivot · Forrest–Tomlin updates"]
-    L2C["📐 **LDLᵀ FACTORIZATION**\n`src/sparse_ldl.cpp`\nAMD ordering · Supernodal · Inertia control"]
-    L2D["⚖️ **SCALING & PREPROCESS**\n`src/scaling.cpp` · `src/presolve.cpp`\nRuiz + Pock-Chambolle · Reductions"]
+    L1["1️⃣ **MATHEMATICAL FOUNDATION**\nResearch papers → Pipeline docs → Design specs\n`Math/` · `PIPELINE_NOTES.md`"]
     
-    %% ============================================================
-    %% LAYER 3: SOLVER ENGINES (Parallel Development)
-    %% ============================================================
-    L3A["⚙️ **SIMPLEX ENGINE**\n`src/simplex.cpp`\nDual/Primal · Steepest edge · Harris BFRT\nCost perturbation · Bland fallback"]
-    L3B["📈 **INTERIOR POINT ENGINE**\n`src/qp_ipm.cpp`\nMehrotra + Gondzio correctors\nQuasidefinite system · Refinement"]
-    L3C["⚡ **PDLP ENGINE**\n`include/pdlp_algo.hpp` (shared)\nCPU: `src/pdlp.cpp`\nGPU: `gpu/pdlp_gpu_solve.cu`"]
-    L3D["🌳 **MILP ENGINE**\n`src/mip.cpp` + `src/mip_probe.cpp`\nBranch & Cut · Probing · Clique table\nReliability branching · Heuristics"]
+    L2["2️⃣ **CORE INFRASTRUCTURE**\nSparse LA (CSR/CSC) · LU · LDLᵀ · AMD ordering\nScaling (Ruiz + Pock-Chambolle) · Presolve"]
     
-    %% ============================================================
-    %% LAYER 4: INTELLIGENCE LAYER
-    %% ============================================================
-    L4A["🔍 **INDEPENDENT VERIFIER**\n`src/verify.cpp`\nKKT on original problem\nPrimal/Dual/Gap residuals"]
-    L4B["🎯 **CROSSOVER BRIDGE**\nPDLP point → Simplex basis\nPivoting crash → Vertex solution"]
-    L4C["📊 **POSTSOLVE RECOVERY**\nUnscale → Undo presolve (LIFO)\nOriginal-space solution"]
+    L3["3️⃣ **SOLVER ENGINES**\nSimplex (Dual/Primal) · IPM (Mehrotra+Gondzio)\nPDLP (CPU + GPU, shared algo) · MILP (Branch & Cut)"]
     
-    %% ============================================================
-    %% LAYER 5: ORCHESTRATION & INTERFACES
-    %% ============================================================
-    L5A["🏁 **CONCURRENT PORTFOLIO**\n`solve_mps_concurrent`\n4 engines race · First verified wins"]
-    L5B["🏎️ **AUTO RACE MODE**\nSimplex vs PDLP+GPU\nFirst certified answer wins"]
-    L5C["🌐 **INTERFACES**\nCLI · Web UI · Python API\nJSON/CSV/.sol output"]
+    L4["4️⃣ **INTELLIGENCE LAYER**\nIndependent KKT Verifier · Crossover Bridge\nPostsolve Recovery (unscale + undo presolve)"]
     
-    %% ============================================================
-    %% LAYER 6: VALIDATION & DELIVERY
-    %% ============================================================
-    L6A["✅ **BENCHMARK SUITE**\nNetlib LP (91) · MIPLIB 3 (63)\nMaros-Mézáros QP (134)"]
-    L6B["⚔️ **COMPETITIVE AUDIT**\nvs HiGHS (commercial reference)\nVerifier checks both"]
-    L6C["📦 **DELIVERY**\nCLI binary · Web UI · Python\nDocs · Scaling studies"]
+    L5["5️⃣ **ORCHESTRATION & INTERFACES**\nConcurrent Portfolio (4 engines race)\nAuto Race (Simplex vs PDLP+GPU) · CLI · Web UI · Python"]
     
-    %% ============================================================
-    %% CONNECTIONS (Systematic Flow)
-    %% ============================================================
-    L1A --> L1B --> L1C
-    L1C --> L2A & L2B & L2C & L2D
-    L2A & L2B & L2C & L2D --> L3A & L3B & L3C & L3D
-    L3A & L3B & L3C & L3D --> L4A & L4B & L4C
-    L4A & L4B & L4C --> L5A & L5B & L5C
-    L5A & L5B & L5C --> L6A & L6B & L6C
+    L6["6️⃣ **VALIDATION & DELIVERY**\nNetlib · MIPLIB · Maros-Mézáros benchmarks\nvs HiGHS audit · CLI + Web + Python delivery"]
+    
+    %% Clean linear flow with subtle cross-connections
+    L1 --> L2
+    L2 --> L3
+    L3 --> L4
+    L4 --> L5
+    L5 --> L6
     
     %% Styling - Layer-based colors
     classDef layer1 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
@@ -239,24 +208,24 @@ flowchart TB
     classDef layer5 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
     classDef layer6 fill:#e0f2f1,stroke:#00695c,stroke-width:2px
     
-    class L1A,L1B,L1C layer1
-    class L2A,L2B,L2C,L2D layer2
-    class L3A,L3B,L3C,L3D layer3
-    class L4A,L4B,L4C layer4
-    class L5A,L5B,L5C layer5
-    class L6A,L6B,L6C layer6
+    class L1 layer1
+    class L2 layer2
+    class L3 layer3
+    class L4 layer4
+    class L5 layer5
+    class L6 layer6
 ```
 
-### Layer Summary (for PPT)
+### Quick Reference (for PPT)
 
-| Layer | Purpose | Key Deliverables |
-|-------|---------|------------------|
-| **1. Mathematical Foundation** | Source of truth | Pipeline docs, paper mapping, deviation log |
-| **2. Core Infrastructure** | Reusable building blocks | Sparse LA, LU, LDLᵀ, Scaling, Presolve |
-| **3. Solver Engines** | Problem-specific solvers | Simplex, IPM, PDLP (CPU/GPU), MILP |
-| **4. Intelligence Layer** | Correctness & bridging | Verifier, Crossover, Postsolve |
-| **5. Orchestration** | Smart execution | Portfolio, Race, Interfaces |
-| **6. Validation** | Proof of quality | Benchmarks, Competitive audit, Delivery |
+| Layer | What Happens | Output |
+|-------|--------------|--------|
+| **1. Math Foundation** | Papers → Pipeline docs → Specs | Design blueprint |
+| **2. Core Infrastructure** | Sparse matrices, factorizations, preprocessing | Reusable math library |
+| **3. Solver Engines** | 4 engines built on foundation | LP/QP/MILP solvers |
+| **4. Intelligence** | Verification, crossover, recovery | Certified answers |
+| **5. Orchestration** | Smart execution, interfaces | User-ready system |
+| **6. Validation** | Benchmarks, audit, delivery | Proven, deployable product |
 
 ---
 
