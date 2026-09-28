@@ -325,6 +325,140 @@ python tools/benchmark.py --exe build/Release/sovereign_solve.exe --set all --hi
 
 ---
 
+## Capabilities Summary: What This Solver Delivers
+
+### Problem Classes & Industrial Domains
+
+| Domain | Math Form | Engine Used | Evidence |
+|--------|-----------|-------------|----------|
+| Refinery scheduling | MILP (time-indexed, binary modes) | Branch-and-cut | 12×12, 30×24 MILP match HiGHS exactly |
+| Crude blending | LP / QP (pool qualities) | IPM (convex QP), Simplex | Maros-Mészáros QP: 119/134 certified optimal |
+| Process optimization | LP/QP relaxations (future: NLP/MINLP) | IPM + MILP | QP IPM with inertia control |
+| Production planning | MILP (lots, setups, resources) | Branch-and-cut | MIPLIB 3: 47/63 proven optimal |
+| Logistics / transportation | LP (network flow), MILP (routing) | Simplex, PDLP, MILP | 1M-var transport LP: 8s on GPU |
+| Power system dispatch | LP/QP (DC/AC OPF), MILP (unit commitment) | Simplex, IPM, MILP | Netlib LPs (power variants): 91/91 optimal |
+| Supply chain management | MILP (multi-echelon, facility location) | Branch-and-cut | Probing, clique cuts, RINS/RENS |
+
+### Sovereignty & Transparency
+
+| Property | How It's Achieved |
+|----------|-------------------|
+| **Zero external solver deps** | No CBC, HiGHS, CLP, OSQP in solve path |
+| **Zero external LA deps** | Own sparse LU, LDLᵀ, AMD ordering, SpMV |
+| **GPU without cuBLAS/cuSPARSE** | Hand-written CUDA kernels (warp-per-row SpMV, fused updates, deterministic reductions) |
+| **Full source visibility** | Every algorithm in `src/`/`include/` — readable C++17 |
+| **Math traceability** | `Math/` folder: pipeline PDFs + `PIPELINE_NOTES.md` with paper references & deviations |
+| **Audit any solution** | `--check` runs independent verifier on any solver's output |
+| **Bit-reproducible** | Hash-based perturbation, fixed-order GPU reductions, CPU/GPU match |
+| **License-free** | MIT-style — run anywhere, modify freely, no per-core/user/model fees |
+
+### Numerical Robustness (Built-In, Not Bolted-On)
+
+| Technique | Engine | Purpose |
+|-----------|--------|---------|
+| Iterative refinement | Simplex (every solve), IPM (up to 10 steps), PDLP (KKT check) | Remove rounding error & regularization bias |
+| Inertia control / dynamic regularization | IPM | Fix wrong-sign pivots, reduce adaptively |
+| Dependent row removal | IPM | Prevent singular K, dual corruption |
+| Cost perturbation (not bound) | Simplex | Handle dual degeneracy deterministically |
+| Bland fallback | Simplex | Guaranteed termination (never fired on Netlib) |
+| Symmetric Q scaling | QP | Preserve convexity |
+| Integer columns never scaled | Presolve/Postsolve | Preserve integrality exactly |
+| Independent KKT verifier | All | Status follows verifier on **original** problem, not engine |
+
+### Scalability Demonstrated
+
+| Scale | Result |
+|-------|--------|
+| 1M variables, 2M nonzeros (transport LP) | GPU PDLP: 8.1s (6× CPU) |
+| Netlib LP (91 problems, up to ~500k nnz) | 91/91 optimal, verifier eps ≤ 4.4e-8 |
+| Maros-Mészáros QP (134 problems) | 119/134 certified optimal |
+| Refinery MILP (744 binaries) | 1.7s, matches HiGHS |
+| MIPLIB 3 (63 problems, 4 threads, 60s) | 47/63 proven optimal, 0 wrong |
+
+### Extensibility (Architecture Ready for MIQP/NLP/MINLP)
+
+| Layer | Current | Extension Path |
+|-------|---------|----------------|
+| Problem representation | `RangedLP` (A, Q, integer[]) | Add `H(x)`, `g(x)`, `∇g(x)` |
+| Continuous solvers | Simplex, IPM, PDLP (clean interface) | Add NLP (filter SQP) — same postsolve/verify |
+| MILP engine | Branch-and-cut with LP at nodes | **MIQP**: swap LP→QP (IPM ready); **MINLP**: swap LP→NLP + outer approximation |
+| Cut/heuristic framework | GMI, c-MIR, cover, clique, RINS, pump | Add perspective cuts (MIQP), NLP heuristics |
+| Verification | KKT on original LP/QP | Extend to KKT + constraints (NLP), integrality + KKT (MIQP/MINLP) |
+| Linear algebra | Sparse LU, LDLᵀ | Reuse both; add Hessian-vector, L-BFGS |
+
+### Time & Space Complexity
+
+| Engine | Per-Iteration | Typical Iterations | Memory |
+|--------|---------------|-------------------|--------|
+| Dual Simplex | O(nnz) pricing + O(m²) FTRAN/BTRAN | O(m) to O(m²) | O(nnz(L)+nnz(U)) |
+| Primal Simplex | Same | Similar | Same |
+| IPM (LP/QP) | O(nnz(L)) per Newton step | 20–80 | O(nnz(L)) ≈ 3–10× nnz(A) |
+| PDLP (CPU) | 2 SpMVs = **O(nnz)** | 1,000–10,000+ | O(n+m+nnz) |
+| PDLP (GPU) | Same, 6× faster at 1M vars | Same | Same in VRAM |
+| MILP Tree | Warm-started LP per node | Nodes until gap | Compact: O(own changes only) |
+
+**Empirical scaling** (from `sovereign scale`):
+- Transport LP: time ~nnz¹·¹, memory ~nnz¹·⁰
+- Refinery LP: time ~nnz¹·³, memory ~nnz¹·¹
+- Refinery MILP: time ~nnz¹·⁵⁻¹·⁸, memory ~nnz¹·¹
+
+### Memory Management
+
+- **Counting allocator** (`src/alloc_stats.cpp`) replaces global `new/delete` — reports in `--json`:
+  ```json
+  "heap_allocations": 1234567,
+  "heap_bytes_allocated": "2.3 GB",
+  "heap_peak_live_bytes": "845 MB",
+  "heap_live_bytes_at_end": "12 MB"
+  ```
+- **Zero per-iteration allocations** in hot paths (pre-allocated, reused via `swap()`)
+- **MILP cut separators**: zero per-attempt allocation (per-thread scratch buffers reused)
+- **GPU**: all device memory allocated once at backend construction (RAII `DVec`)
+
+### Parallelization (Multi-Core + GPU)
+
+| Level | Mechanism |
+|-------|-----------|
+| **LP Portfolio** | Concurrent: dual/primal/IPM/PDLP+crossover on separate threads; first **verified** wins |
+| **Auto Race** | Simplex vs PDLP+crossover — whichever certifies first |
+| **MILP Root** | Probing in chunks (snapshot+merge); cut separation per-thread with scratch buffers; deterministic merge |
+| **MILP Tree** | Separate mutexes for node pool / incumbent / pseudocosts; compact nodes (own changes + shared parent trail) |
+| **GPU** | PDLP only — hand-written kernels, no cuBLAS/cuSPARSE, 6× speedup at 1M vars |
+
+### Verification & Trust
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Every solution → Postsolve → Independent KKT Verifier     │
+│                    (original unscaled problem)              │
+├─────────────────────────────────────────────────────────────┤
+│  eps_P (primal feasibility)   eps_D (dual feasibility)     │
+│  eps_G (duality gap)          max_int_violation (MILP)     │
+├─────────────────────────────────────────────────────────────┤
+│  Status = f(verifier residuals):                           │
+│    optimal       ≤ 1e-6  (engine tolerance)                │
+│    near_optimal  ≤ 1e-4                                     │
+│    inaccurate    > 1e-4  (engine finished but NOT certified)│
+│    infeasible / unbounded / time_limit / node_limit / …    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Roadmap (What's Next)
+
+| Priority | Item | Effort |
+|----------|------|--------|
+| High | Hypersparse FTRAN/BTRAN for simplex | Medium |
+| High | Nested dissection ordering for LDLᵀ | Medium |
+| High | GCD tightening, symmetry breaking for MILP | Medium |
+| Medium | Lifted cover cuts, local tree cuts | Medium |
+| Medium | GPU cut scoring, parallel primal heuristics | Large |
+| Future | NLP solver (filter SQP) → MINLP via outer approximation | Large |
+| Future | Modeling language (Pyomo/AMPL-like) emitting MPS/QPS | Separate project |
+
+---
+
 ## Layout
 
 ```
