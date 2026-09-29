@@ -1,4 +1,4 @@
-# Sovereign Optimization Solver (SIH 2026 · PS 26119 · MRPL)
+# Suprema Optimization Solver (SIH 2026 · PS 26119 · MRPL)
 
 ## 📑 Table of Contents
 - [🎯 Unique Value Proposition](#-unique-value-proposition)
@@ -19,7 +19,7 @@
 - [🌐 Interface](#interface)
 - [🧪 Tests and Benchmarks](#tests-and-benchmarks)
 - [📈 Results](#results-rtx-3050-laptop-12-threads-reference-highs-1151-2026-09-27)
-- [⚖️ Comparison: Sovereign vs HiGHS](#comparison-sovereign-solver-vs-highs)
+- [⚖️ Comparison: Suprema vs HiGHS](#comparison-sovereign-solver-vs-highs)
 - [⚠️ Honest Limitations](#honest-limitations-read-before-presenting)
 - [✨ Capabilities Summary](#capabilities-summary-what-this-solver-delivers)
 - [🗺️ Roadmap](#roadmap-whats-next)
