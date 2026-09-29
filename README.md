@@ -5,21 +5,21 @@
 ---
 
 ## 📑 Table of Contents
-1. [Executive Summary](#executive-summary)
-2. [Problem & Solution](#problem--solution)
-3. [Solution Flow: How the Solver Works](#solution-flow-how-the-solver-works)
-4. [Unique Value Proposition](#unique-value-proposition)
-5. [Mathematical Architecture](#mathematical-architecture)
-6. [Technical Approach](#technical-approach)
-7. [Results & Benchmarks](#results--benchmarks)
-8. [Verification Methodology](#verification-methodology)
-9. [Software Architecture](#software-architecture)
-10. [Build & Run](#build--run)
-11. [Comparison: Sovereign vs HiGHS](#comparison-sovereign-vs-highs)
-12. [Screenshots](#screenshots)
-13. [Limitations & Roadmap](#limitations--roadmap)
-14. [Project Layout](#project-layout)
-15. [Key Files for Judges](#key-files-for-judges)
+1. [Executive Summary](#-executive-summary)
+2. [Problem & Solution](#-problem--solution)
+3. [Solution Flow: How the Solver Works](#-solution-flow-how-the-solver-works)
+4. [Unique Value Proposition](#-unique-value-proposition)
+5. [Mathematical Architecture](#-mathematical-architecture)
+6. [Technical Approach](#-technical-approach)
+7. [Results & Benchmarks](#-results--benchmarks)
+8. [Verification Methodology](#-verification-methodology)
+9. [Software Architecture](#-software-architecture)
+10. [Build & Run](#-build--run)
+11. [Comparison: Sovereign vs HiGHS](#-comparison-sovereign-vs-highs)
+11. [Screenshots](#-screenshots)
+12. [Limitations & Roadmap](#-limitations--roadmap)
+12. [Project Layout](#-project-layout)
+13. [Key Files for Judges](#-key-files-for-judges)
 
 ---
 
