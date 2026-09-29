@@ -3,7 +3,7 @@ bench_results/
 ui_runs/
 cli_runs/
 Presentation/
-Pics/
+
 create_presentation*.js
 package.json
 package-lock.json
