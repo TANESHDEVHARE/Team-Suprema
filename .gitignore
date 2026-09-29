@@ -2,3 +2,13 @@ bench_data/
 bench_results/
 ui_runs/
 cli_runs/
+Presentation/
+Pics/
+create_presentation*.js
+package.json
+package-lock.json
+node_modules/
+create_pptx_final.js
+inspect_pptx_v2.py
+inspect_pptx.py
+unpacked_pptx
