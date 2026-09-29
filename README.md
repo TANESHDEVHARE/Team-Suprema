@@ -1,4 +1,4 @@
-# Sovereign Optimization Solver
+# Suprema - Indian Optimization Solver
 **SIH 2026 · PS 26119 · MRPL**  
 *A from-scratch, license-free LP/MILP/QP solver with GPU acceleration, concurrent engine portfolio, and independent KKT verification — built entirely from mathematical foundations for Indian industrial sovereignty.*
 
@@ -15,7 +15,7 @@
 8. [Verification Methodology](#-verification-methodology)
 9. [Software Architecture](#-software-architecture)
 10. [Build & Run](#-build--run)
-11. [Comparison: Sovereign vs HiGHS](#-comparison-sovereign-vs-highs)
+11. [Comparison: Suprema vs HiGHS](#-comparison-sovereign-vs-highs)
 11. [Screenshots](#-screenshots)
 12. [Limitations & Roadmap](#-limitations--roadmap)
 12. [Project Layout](#-project-layout)
@@ -489,18 +489,18 @@ python tools/ui_server.py   # opens http://127.0.0.1:8765
 
 ---
 
-## ⚖️ Comparison: Sovereign vs HiGHS
+## ⚖️ Comparison: Suprema vs HiGHS
 
-| Aspect | Sovereign | HiGHS | Advantage |
+| Aspect | Suprema | HiGHS | Advantage |
 |--------|-----------|-------|-----------|
 | **License** | MIT | MIT | Tie |
-| **GPU Support** | Yes (PDLP, 6×) | No | **Sovereign** |
-| **LP Engines** | 4 (race) | 2 | **Sovereign** |
-| **Verification** | Independent KKT (original) | Internal | **Sovereign** |
+| **GPU Support** | Yes (PDLP, 6×) | No | **Suprema** |
+| **LP Engines** | 4 (race) | 2 | **Suprema** |
+| **Verification** | Independent KKT (original) | Internal | **Suprema** |
 | **Netlib LP (91)** | 91/91 optimal | 91/91 optimal | Tie |
 | **Netlib Time** | 46s | 19s | HiGHS 2.4× |
 | **MIPLIB 3 (63, 4t)** | 47/63 opt, 0 wrong | 48/63 opt | Tie |
-| **GPU PDLP (1M vars)** | 8.1s (6×) | N/A | **Sovereign** |
+| **GPU PDLP (1M vars)** | 8.1s (6×) | N/A | **Suprema** |
 | **MILP Cuts** | GMI, c-MIR, VUB, cover, clique | More types | HiGHS |
 | **Hypersparse Solves** | Not yet | Yes | HiGHS |
 | **Nested Dissection** | AMD only | Yes | HiGHS |
@@ -509,7 +509,7 @@ python tools/ui_server.py   # opens http://127.0.0.1:8765
 | **License Cost** | Free (MIT) | Free (MIT) | Tie |
 | **Air-gapped / Offline** | Yes | Yes | Tie |
 
-**Bottom line:** Sovereign wins on GPU, verification, portfolio, sovereignty; HiGHS wins on mature MILP cut breadth, simplex speed, IPM stability.
+**Bottom line:** Suprema wins on GPU, verification, portfolio, sovereignty; HiGHS wins on mature MILP cut breadth, simplex speed, IPM stability.
 
 ---
 
