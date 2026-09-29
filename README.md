@@ -101,7 +101,78 @@ flowchart TD
 
 ---
 
-## 🎯 UVP Visual
+## 🧮 Mathematical Architecture
+
+```mermaid
+flowchart TD
+    subgraph FOUNDATION["📐 MATHEMATICAL FOUNDATIONS"]
+        F1["Linear Programming Theory\nSimplex Method · Duality Theory\nFarkas Lemma · Complementary Slackness"]
+        F2["Convex Optimization\nConvex Sets · Convex Functions\nKKT Conditions · Duality Gap"]
+        F3["Integer Programming\nPolyhedral Theory · Cutting Planes\nBranch-and-Bound · Branch-and-Cut"]
+        F4["Numerical Linear Algebra\nSparse Matrix Theory\nMatrix Factorizations · Condition Numbers"]
+    end
+
+    subgraph LP_MATH["📈 LP MATHEMATICS"]
+        L1["Primal Simplex\nDictionary · Pivot Rules\nBland's Rule · Degeneracy"]
+        L2["Dual Simplex\nDual Feasibility\nReduced Costs · Ratio Test"]
+        L3["Interior Point Methods\nCentral Path · Barrier Functions\nMehrotra Predictor-Corrector"]
+        L4["PDLP / First-Order Methods\nPrimal-Dual Hybrid Gradient\nRestarted PDHG · Adaptive Steps"]
+    end
+
+    subgraph MILP_MATH["🌳 MILP MATHEMATICS"]
+        M1["Branch-and-Bound\nLP Relaxation · Bounds\nBest-Bound Search"]
+        M2["Cutting Planes\nGomory Cuts · c-MIR\nVUB Cuts · Knapsack Covers"]
+        M3["Cutting Plane Theory\nSeparation Oracle\nCut Strength · Rank-1 Cuts"]
+        M4["Heuristics\nFeasibility Pump · RINS/RENS\nDiving · Fix-and-Propagate"]
+    end
+
+    subgraph QP_MATH["📐 QP MATHEMATICS"]
+        Q1["Convex QP\nQuadratic Objective · Linear Constraints\nKKT Conditions · Positive Semidefinite Q"]
+        Q2["Interior Point for QP\nMehrotra Predictor-Corrector\nGondzio Centrality Correctors"]
+        Q3["KKT System\nQuasidefinite Matrix\nRegularization · Inertia Control"]
+    end
+
+    subgraph ALGEBRA["🔢 LINEAR ALGEBRA FOUNDATIONS"]
+        A1["Sparse Matrix Formats\nCSR / CSC · SpMV · MatVec\nFill-Reducing Orderings · AMD"]
+        A2["LU Factorization\nMarkowitz Pivoting\nForrest-Tomlin Updates"]
+        A3["LDLᵀ Factorization\nSymmetric Indefinite\nAMD Ordering · Inertia Control"]
+        A4["Iterative Refinement\nResidual Correction\nBackward Error Analysis"]
+    end
+
+    subgraph VERIFICATION["✅ VERIFICATION THEORY"]
+        V1["KKT Conditions\nPrimal Feasibility · Dual Feasibility\nComplementary Slackness"]
+        V2["Error Bounds\nResidual Analysis\nForward/Backward Error"]
+        V3["Certificate of Optimality\nFarkas Certificate · Primal/Dual Certificates"]
+    end
+
+    %% Mathematical Flow
+    FOUNDATION --> LP_MATH & MILP_MATH & QP_MATH
+    LP_MATH --> ALGEBRA
+    MILP_MATH --> ALGEBRA & LP_MATH
+    QP_MATH --> ALGEBRA & LP_MATH
+    ALGEBRA & VERIFICATION --> OUTPUT["✅ CERTIFIED SOLUTION"]
+
+    %% Styling
+    classDef foundation fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef lp fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef milp fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef qp fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef algebra fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef verify fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+
+    class FOUNDATION foundation
+    class LP_MATH lp
+    class MILP_MATH milp
+    class QP_MATH qp
+    class ALGEBRA algebra
+    class VERIFICATION verify
+    class OUTPUT output
+```
+
+---
+
+## 🎯 Unique Value Proposition
 
 ```mermaid
 flowchart TD
@@ -142,7 +213,83 @@ flowchart TD
 
 ---
 
-## 🔬 Methodology
+## 🏗️ Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph INPUT["📥 INPUT"]
+        A["Model File\nMPS / QPS"]
+    end
+
+    subgraph PREPROCESS["⚙️ PREPROCESSING"]
+        B["Read & Parse\nMPS/QPS Parser"]
+        C["Presolve\nReduce, Simplify, Fix"]
+        D["Scale\nRuiz + Pock-Chambolle\nInteger cols never scaled"]
+    end
+
+    subgraph ENGINES["🏃 SOLVER ENGINES"]
+        subgraph LP["LP Engines"]
+            E1["Dual Simplex\nMarkowitz LU\nSteepest Edge\nCost Perturbation"]
+            E2["Primal Simplex\nDevex Phase 2"]
+            E3["Interior Point\nMehrotra + Gondzio\nAMD LDLᵀ"]
+            E4["PDLP\nRestarted PDHG\nCPU + GPU Kernels"]
+        end
+        
+        subgraph MILP["MILP Engine"]
+            F1["Root: Probe & Cut\nProbing + Clique Table\nGMI + c-MIR + VUB"]
+            F2["Parallel Tree\nReliability Branching\nBest-Bound Search"]
+            F3["Heuristics\nRounding, Pump, RINS\nRENS, Fix-Prop, Diving"]
+        end
+        
+        subgraph QP["QP Engine"]
+            G1["Interior Point\nMehrotra + Gondzio\nAMD LDLᵀ"]
+        end
+    end
+
+    subgraph ORCHESTRATION["🎭 ORCHESTRATION"]
+        H["Concurrent Portfolio\n4 LP Engines Race\nFirst VERIFIED Wins"]
+        I["Auto Race\nSimplex vs PDLP+GPU"]
+        J["MILP Parallel Tree\nBest-Bound + Plunging"]
+    end
+
+    subgraph INTELLIGENCE["🧠 INTELLIGENCE LAYER"]
+        K["Crossover\nPDLP Point → Simplex Basis\nPivoting Crash"]
+        L["Postsolve\nUnscale + Undo Presolve LIFO"]
+        M["Independent KKT Verifier\nOriginal Unscaled Problem\nPrimal · Dual · Gap"]
+    end
+
+    subgraph OUTPUT["✅ OUTPUT"]
+        N["CERTIFIED RESULT\nStatus + Residuals\nSolution + Reports"]
+    end
+
+    %% Flow
+    A --> B --> C --> D
+    D --> E1 & E2 & E3 & E4 & F1 & G1
+    E1 & E2 & E3 & E4 --> H & I
+    F1 & F2 & F3 --> J
+    H & I & J --> K
+    K --> L --> M
+    M --> N
+
+    %% Styling
+    classDef input fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef prep fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef engine fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef orch fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef intel fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    
+    class A input
+    class B,C,D prep
+    class E1,E2,E3,E4,F1,F2,F3,G1 engine
+    class H,I,J orch
+    class K,L,M intel
+    class N output
+```
+
+---
+
+## 🎯 Unique Value Proposition
 
 ### Methodology at a Glance
 
