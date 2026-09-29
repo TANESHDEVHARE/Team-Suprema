@@ -733,7 +733,7 @@ python tools/benchmark.py --exe build/Release/sovereign_solve.exe --set all --hi
 
 ```mermaid
 graph TB
-    subgraph SOVEREIGN["Sovereign Solver Strengths"]
+    subgraph SUPREMA["Suprema Solver Strengths"]
         S1["GPU PDLP (6x speedup at 1M vars)"]
         S2["4 LP engines in concurrent portfolio"]
         S3["Independent KKT verification"]
@@ -771,7 +771,7 @@ graph TB
         T9["Air-gapped deployment"]
     end
     
-    SOVEREIGN -.-> TIED
+    SUPREMA -.-> TIED
     HIGHGHS -.-> TIED
     
     classDef sov fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
@@ -935,7 +935,7 @@ graph TB
 ```mermaid
 flowchart LR
     %% Value Proposition
-    VP["Value Proposition\nSovereign LP/MILP/QP Solver\n. Zero license cost\n. Full algorithm transparency\n. No vendor lock-in\n. GPU accelerated\n. Verified correctness"]
+    VP["Value Proposition\nSuprema LP/MILP/QP Solver\n. Zero license cost\n. Full algorithm transparency\n. No vendor lock-in\n. GPU accelerated\n. Verified correctness"]
     
     %% Target Markets
     VP --> M1["Indian Industry\nRefining, petrochemicals,\npower, logistics, steel,\ncement, fertilizers"]
